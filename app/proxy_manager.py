@@ -18,6 +18,7 @@ CONFIG_PATH = Path(os.environ.get("PROXY_CONFIG_PATH", "/app/data/3proxy.cfg"))
 LOG_DIR = Path(os.environ.get("PROXY_LOG_DIR", "/var/log/3proxy"))
 THREEPROXY_BIN = os.environ.get("THREEPROXY_BIN", "/usr/local/bin/3proxy")
 SSL_PLUGIN_PATH = os.environ.get("SSL_PLUGIN_PATH", "/usr/local/lib/3proxy/SSLPlugin.ld.so")
+THREEPROXY_SSL = os.environ.get("THREEPROXY_SSL", "1").lower() in ("1", "true", "yes")
 
 CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
 LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -167,6 +168,12 @@ def _kill_stale_3proxy():
             pass
 
 
+def _ssl_available() -> bool:
+    if THREEPROXY_SSL:
+        return Path(THREEPROXY_BIN).is_file()
+    return Path(SSL_PLUGIN_PATH).is_file()
+
+
 def _tls_certs_valid(cert: str, key: str) -> bool:
     valid, _ = domain_manager.validate_tls_pair(cert, key)
     return valid
@@ -217,9 +224,8 @@ def _build_config_text() -> str:
     cert_paths = domain_manager.get_tls_paths()
     tls_ok = bool(cert_paths and _tls_certs_valid(cert_paths[0], cert_paths[1]))
     has_https = any(p["type"] == "https" for p in ports)
-    use_ssl_plugin = bool(
-        has_https and tls_ok and Path(SSL_PLUGIN_PATH).is_file()
-    )
+    use_ssl = bool(has_https and tls_ok and _ssl_available())
+    use_ssl_plugin = use_ssl and not THREEPROXY_SSL
 
     if use_ssl_plugin:
         lines.append(f"plugin {SSL_PLUGIN_PATH} ssl_plugin")
@@ -239,7 +245,7 @@ def _build_config_text() -> str:
     if not ports:
         lines.append("# Портов пока нет — 3proxy запущен без активных прокси-сервисов")
 
-    def _emit_port(p, pre_proxy_lines: list[str], *, listen: bool = True):
+    def _emit_port(p, pre_proxy_lines: list[str], *, listen: bool = True, secure: bool = False):
         allowed = [users_by_id[uid]["username"] for uid in port_to_users.get(p["id"], []) if uid in users_by_id]
         if not allowed and all_usernames:
             allowed = all_usernames
@@ -256,10 +262,13 @@ def _build_config_text() -> str:
             lines.append("allow *")
         lines.extend(pre_proxy_lines)
         if listen:
-            lines.append(f"proxy -p{p['port']}")
+            proxy_flags = "-s0" if secure else ""
+            lines.append(f"proxy {proxy_flags} -p{p['port']}".replace("  ", " ").strip())
+            if secure:
+                lines.append("ssl_noserv")
         lines.append("")
 
-    # HTTP-порты идут до ssl_serv (ssl_noserv после flush ломает SSL plugin).
+    # HTTP-порты идут до ssl_serv.
     http_ports = [p for p in ports if p["type"] != "https"]
     https_ports = [p for p in ports if p["type"] == "https"]
 
@@ -275,8 +284,8 @@ def _build_config_text() -> str:
             lines.append(f"# HTTPS {p['port']} — сертификат/ключ не читаются или не совпадают")
             _emit_port(p, ["deny *"], listen=False)
             continue
-        if not use_ssl_plugin:
-            lines.append(f"# HTTPS {p['port']} — SSL plugin недоступен, выполните ./deploy.sh")
+        if not use_ssl:
+            lines.append(f"# HTTPS {p['port']} — SSL недоступен, выполните ./deploy.sh")
             _emit_port(p, ["deny *"], listen=False)
             continue
         lines.append(f"# tls-cert={cert_paths[0]} tls-key={cert_paths[1]}")
@@ -284,7 +293,7 @@ def _build_config_text() -> str:
             f"ssl_server_cert {cert_paths[0]}",
             f"ssl_server_key {cert_paths[1]}",
             "ssl_serv",
-        ])
+        ], secure=True)
 
     return "\n".join(lines) + "\n"
 
@@ -314,7 +323,8 @@ def diagnostics() -> dict:
         "error": last_error(),
         "managed_pid": managed_pid,
         "stale_pids": stale,
-        "ssl_plugin": Path(SSL_PLUGIN_PATH).is_file(),
+        "ssl_plugin": _ssl_available(),
+        "ssl_builtin": THREEPROXY_SSL,
         "tls": domain_manager.tls_status(),
         "config_path": str(CONFIG_PATH),
         "config": config_text,
@@ -478,6 +488,10 @@ def test_https_proxy(host: str, port: int, username: str, password: str) -> dict
         elif "unable to get local issuer certificate" in err:
             results["details"].append(
                 "Прокси: неполная цепочка CA — пересохраните TLS с fullchain.pem и ./deploy.sh"
+            )
+        elif "bad record type" in err.lower() or "wrong version number" in err.lower():
+            results["details"].append(
+                "Прокси: баг 3proxy 0.9.5 SSLPlugin — пересоберите образ: git pull && ./deploy.sh (0.9.7)"
             )
         else:
             results["details"].append(f"Прокси: ошибка ({err or curl.returncode})")

@@ -1,25 +1,16 @@
 # ---------------------------------------------------------------------------
-# Stage 1: сборка 3proxy из исходников
+# Stage 1: сборка 3proxy 0.9.7 (встроенный SSL/TLS, без SSLPlugin)
 # ---------------------------------------------------------------------------
 FROM debian:bookworm-slim AS proxy-build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git build-essential ca-certificates libssl-dev patch \
+        git build-essential ca-certificates libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
-COPY patches/apply-3proxy-ssl-fullchain.sh /tmp/apply-3proxy-ssl-fullchain.sh
-COPY patches/ssl_cli_ctx_from_files.c.frag /tmp/ssl_cli_ctx_from_files.c.frag
-RUN chmod +x /tmp/apply-3proxy-ssl-fullchain.sh \
-    && git clone --depth 1 --branch 0.9.5 https://github.com/3proxy/3proxy.git . \
-    && /tmp/apply-3proxy-ssl-fullchain.sh \
-    && sed -i 's/^#LIBS = -lcrypto -lssl -ldl/LIBS = -lcrypto -lssl -ldl/' Makefile.Linux \
-    && sed -i 's/^LIBS = -ldl *$/# LIBS = -ldl/' Makefile.Linux \
-    && sed -i 's/^PLUGINS = StringsPlugin/PLUGINS = SSLPlugin StringsPlugin/' Makefile.Linux \
+RUN git clone --depth 1 --branch 0.9.7 https://github.com/3proxy/3proxy.git . \
     && make -f Makefile.Linux \
-    && install -m 755 bin/3proxy /usr/local/bin/3proxy \
-    && install -d /usr/local/lib/3proxy \
-    && install -m 755 bin/SSLPlugin.ld.so /usr/local/lib/3proxy/
+    && install -m 755 bin/3proxy /usr/local/bin/3proxy
 
 # ---------------------------------------------------------------------------
 # Stage 2: финальный образ на базе Python
@@ -35,7 +26,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && mkdir -p /var/log/3proxy /app/data/caddy /app/data/certs
 
 COPY --from=proxy-build /usr/local/bin/3proxy /usr/local/bin/3proxy
-COPY --from=proxy-build /usr/local/lib/3proxy/SSLPlugin.ld.so /usr/local/lib/3proxy/SSLPlugin.ld.so
 
 WORKDIR /app
 
@@ -50,7 +40,7 @@ ENV PYTHONUNBUFFERED=1 \
     PROXY_CONFIG_PATH=/app/data/3proxy.cfg \
     PROXY_LOG_DIR=/var/log/3proxy \
     THREEPROXY_BIN=/usr/local/bin/3proxy \
-    SSL_PLUGIN_PATH=/usr/local/lib/3proxy/SSLPlugin.ld.so \
+    THREEPROXY_SSL=1 \
     CADDY_BIN=/usr/local/bin/caddy \
     CADDY_DATA=/app/data/caddy \
     CADDYFILE_PATH=/app/data/Caddyfile \
