@@ -893,7 +893,9 @@ def materialize_tls_files(cert_path: str, key_path: str) -> tuple[str, str]:
                 "Укажите /etc/letsencrypt/live/ДОМЕН/fullchain.pem — не cert.pem"
             )
         cert_dest.write_text(fullchain_text, encoding="utf-8")
-        shutil.copy2(key_path, key_dest)
+        key_src = Path(key_path).resolve()
+        if key_src != key_dest.resolve():
+            shutil.copy2(key_path, key_dest)
     except OSError as e:
         raise OSError(f"Не удалось записать сертификаты в {dest_dir}: {e}") from e
     os.chmod(cert_dest, 0o644)
