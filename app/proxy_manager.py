@@ -235,7 +235,7 @@ def _build_config_text() -> str:
     if not ports:
         lines.append("# Портов пока нет — 3proxy запущен без активных прокси-сервисов")
 
-    for p in ports:
+    def _emit_port(p, pre_proxy_lines: list[str], *, listen: bool = True):
         allowed = [users_by_id[uid]["username"] for uid in port_to_users.get(p["id"], []) if uid in users_by_id]
         if not allowed and all_usernames:
             allowed = all_usernames
@@ -250,25 +250,33 @@ def _build_config_text() -> str:
             lines.append("deny *")
         else:
             lines.append("allow *")
-        if p["type"] == "https":
-            if not cert_paths:
-                lines.append(f"# HTTPS {p['port']} — задайте tls-cert и tls-key в админке")
-            elif not tls_ok:
-                lines.append(f"# HTTPS {p['port']} — сертификат/ключ не читаются или не совпадают")
-            elif not use_ssl_plugin:
-                lines.append(f"# HTTPS {p['port']} — SSL plugin недоступен, выполните ./deploy.sh")
-            else:
-                lines.append(f"# tls-cert={cert_paths[0]} tls-key={cert_paths[1]}")
-                lines.append("ssl_serv")
-                lines.append(f"proxy -p{p['port']}")
-                lines.append("")
-                continue
-            lines.append("deny *")
-        else:
-            if use_ssl_plugin:
-                lines.append("ssl_noserv")
+        lines.extend(pre_proxy_lines)
+        if listen:
             lines.append(f"proxy -p{p['port']}")
         lines.append("")
+
+    # HTTP-порты идут до ssl_serv (ssl_noserv после flush ломает SSL plugin).
+    http_ports = [p for p in ports if p["type"] != "https"]
+    https_ports = [p for p in ports if p["type"] == "https"]
+
+    for p in http_ports:
+        _emit_port(p, [])
+
+    for p in https_ports:
+        if not cert_paths:
+            lines.append(f"# HTTPS {p['port']} — задайте tls-cert и tls-key в админке")
+            _emit_port(p, ["deny *"], listen=False)
+            continue
+        if not tls_ok:
+            lines.append(f"# HTTPS {p['port']} — сертификат/ключ не читаются или не совпадают")
+            _emit_port(p, ["deny *"], listen=False)
+            continue
+        if not use_ssl_plugin:
+            lines.append(f"# HTTPS {p['port']} — SSL plugin недоступен, выполните ./deploy.sh")
+            _emit_port(p, ["deny *"], listen=False)
+            continue
+        lines.append(f"# tls-cert={cert_paths[0]} tls-key={cert_paths[1]}")
+        _emit_port(p, ["ssl_serv"])
 
     return "\n".join(lines) + "\n"
 
