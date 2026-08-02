@@ -1,0 +1,182 @@
+from pathlib import Path
+from typing import Optional
+
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Request, Response
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+
+from app import auth, proxy_manager, utils
+from app.database import init_db
+
+STATIC_DIR = Path(__file__).parent / "static"
+
+app = FastAPI(title="Proxy Panel")
+
+
+# --------------------------------------------------------------- Startup ---
+
+@app.on_event("startup")
+def on_startup():
+    init_db()
+    proxy_manager.start()
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    proxy_manager.stop()
+
+
+# ----------------------------------------------------------------- Auth ----
+
+def require_auth(session: Optional[str] = Cookie(default=None, alias=auth.COOKIE_NAME)):
+    if not auth.verify_session_token(session):
+        raise HTTPException(status_code=401, detail="Не авторизован")
+    return True
+
+
+class LoginBody(BaseModel):
+    password: str
+
+
+@app.post("/api/login")
+def login(body: LoginBody, response: Response):
+    if not auth.check_password(body.password):
+        raise HTTPException(status_code=401, detail="Неверный пароль")
+    token = auth.create_session_token()
+    response.set_cookie(
+        auth.COOKIE_NAME,
+        token,
+        httponly=True,
+        samesite="lax",
+        max_age=auth.SESSION_MAX_AGE,
+    )
+    return {"ok": True}
+
+
+@app.post("/api/logout")
+def logout(response: Response):
+    response.delete_cookie(auth.COOKIE_NAME)
+    return {"ok": True}
+
+
+@app.get("/api/me")
+def me(_: bool = Depends(require_auth)):
+    return {"ok": True}
+
+
+# ------------------------------------------------------------ Server info --
+
+@app.get("/api/server-info")
+async def server_info(_: bool = Depends(require_auth)):
+    ip = await utils.get_external_ip()
+    return {"ip": ip, "proxy_running": proxy_manager.is_running()}
+
+
+# ------------------------------------------------------------------ Ports --
+
+class PortCreate(BaseModel):
+    port: int = Field(ge=1, le=65535)
+    type: str = Field(pattern="^(http|https)$")
+
+
+@app.get("/api/ports")
+def get_ports(_: bool = Depends(require_auth)):
+    return proxy_manager.list_ports()
+
+
+@app.post("/api/ports")
+def add_port(body: PortCreate, _: bool = Depends(require_auth)):
+    try:
+        port_id = proxy_manager.create_port(body.port, body.type)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    proxy_manager.reload()
+    return {"id": port_id}
+
+
+@app.delete("/api/ports/{port_id}")
+def remove_port(port_id: int, _: bool = Depends(require_auth)):
+    proxy_manager.delete_port(port_id)
+    proxy_manager.reload()
+    return {"ok": True}
+
+
+# ------------------------------------------------------------------ Users --
+
+class UserCreate(BaseModel):
+    username: Optional[str] = None
+    password: Optional[str] = None
+    port_ids: list[int] = Field(default_factory=list)
+
+
+class UserPortsUpdate(BaseModel):
+    port_ids: list[int]
+
+
+class UserBlockUpdate(BaseModel):
+    blocked: bool
+
+
+@app.get("/api/users")
+def get_users(_: bool = Depends(require_auth)):
+    return proxy_manager.list_users()
+
+
+@app.post("/api/users")
+def add_user(body: UserCreate, _: bool = Depends(require_auth)):
+    username = body.username.strip() if body.username else utils.gen_username()
+    password = body.password.strip() if body.password else utils.gen_password()
+    if not username:
+        username = utils.gen_username()
+    if not password:
+        password = utils.gen_password()
+    try:
+        user_id = proxy_manager.create_user(username, password, body.port_ids)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    proxy_manager.reload()
+    return {"id": user_id, "username": username, "password": password}
+
+
+@app.put("/api/users/{user_id}/ports")
+def update_user_ports(user_id: int, body: UserPortsUpdate, _: bool = Depends(require_auth)):
+    proxy_manager.set_user_ports(user_id, body.port_ids)
+    proxy_manager.reload()
+    return {"ok": True}
+
+
+@app.patch("/api/users/{user_id}/block")
+def block_user(user_id: int, body: UserBlockUpdate, _: bool = Depends(require_auth)):
+    proxy_manager.set_user_blocked(user_id, body.blocked)
+    proxy_manager.reload()
+    return {"ok": True}
+
+
+@app.delete("/api/users/{user_id}")
+def remove_user(user_id: int, _: bool = Depends(require_auth)):
+    proxy_manager.delete_user(user_id)
+    proxy_manager.reload()
+    return {"ok": True}
+
+
+# ---------------------------------------------------------------- Frontend -
+
+@app.get("/login")
+def login_page():
+    return FileResponse(STATIC_DIR / "login.html")
+
+
+@app.get("/")
+def index_page(session: Optional[str] = Cookie(default=None, alias=auth.COOKIE_NAME)):
+    if not auth.verify_session_token(session):
+        return FileResponse(STATIC_DIR / "login.html")
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})

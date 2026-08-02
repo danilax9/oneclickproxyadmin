@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Proxy Panel</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="max-w-5xl mx-auto px-4 py-6">
+
+    <header class="flex items-center justify-between mb-8">
+      <div>
+        <h1 class="text-2xl font-bold">🛡️ Proxy Panel</h1>
+        <p class="text-sm mt-1" style="color: var(--muted)">
+          Внешний IP сервера: <span id="serverIp" class="font-mono">…</span>
+          <span id="proxyStatus" class="badge ml-2"></span>
+        </p>
+      </div>
+      <button id="logoutBtn" class="btn btn-ghost">Выйти</button>
+    </header>
+
+    <!-- Ports -->
+    <section class="card p-5 mb-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold">Порты</h2>
+        <button id="addPortBtn" class="btn btn-primary">+ Открыть порт</button>
+      </div>
+      <div id="portsList" class="flex flex-col gap-2"></div>
+      <p id="portsEmpty" class="text-sm hidden" style="color: var(--muted)">Портов пока нет</p>
+    </section>
+
+    <!-- Users -->
+    <section class="card p-5">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-lg font-semibold">Пользователи</h2>
+        <button id="addUserBtn" class="btn btn-primary">+ Создать пользователя</button>
+      </div>
+      <div id="usersList" class="flex flex-col gap-3"></div>
+      <p id="usersEmpty" class="text-sm hidden" style="color: var(--muted)">Пользователей пока нет</p>
+    </section>
+  </div>
+
+  <!-- Modal: add port -->
+  <div id="portModal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50">
+    <div class="card p-6 w-full max-w-sm">
+      <h3 class="font-semibold mb-4">Новый порт</h3>
+      <div class="flex flex-col gap-3">
+        <input id="portInput" type="number" min="1" max="65535" placeholder="Например, 3128" class="input">
+        <select id="portTypeInput" class="input">
+          <option value="http">HTTP</option>
+          <option value="https">HTTPS</option>
+        </select>
+        <p id="portError" class="text-sm hidden" style="color: var(--danger)"></p>
+        <div class="flex gap-2 justify-end mt-2">
+          <button class="btn btn-ghost" onclick="closeModal('portModal')">Отмена</button>
+          <button class="btn btn-primary" id="portSubmitBtn">Создать</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: add user -->
+  <div id="userModal" class="fixed inset-0 bg-black/60 hidden items-center justify-center z-50">
+    <div class="card p-6 w-full max-w-md">
+      <h3 class="font-semibold mb-4">Новый пользователь</h3>
+      <div class="flex flex-col gap-3">
+        <input id="userNameInput" type="text" placeholder="Логин (пусто = сгенерировать)" class="input">
+        <input id="userPassInput" type="text" placeholder="Пароль (пусто = сгенерировать)" class="input">
+        <div>
+          <p class="text-sm mb-2" style="color: var(--muted)">Доступ к портам</p>
+          <div id="userPortsCheckboxes" class="flex flex-col gap-1 max-h-40 overflow-y-auto scrollbar-thin"></div>
+        </div>
+        <p id="userError" class="text-sm hidden" style="color: var(--danger)"></p>
+        <div class="flex gap-2 justify-end mt-2">
+          <button class="btn btn-ghost" onclick="closeModal('userModal')">Отмена</button>
+          <button class="btn btn-primary" id="userSubmitBtn">Создать</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

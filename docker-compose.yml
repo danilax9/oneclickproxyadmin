@@ -1,0 +1,20 @@
+services:
+  proxy-panel:
+    build: .
+    image: proxy-panel:latest
+    container_name: proxy-panel
+    restart: unless-stopped
+    # host-режим нужен, чтобы прокси-порты, открываемые из админки,
+    # сразу были доступны на сервере без пробрасывания каждого порта вручную.
+    network_mode: host
+    environment:
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
+      PANEL_PORT: ${PANEL_PORT:-8000}
+      SECRET_KEY: ${SECRET_KEY:-}
+    volumes:
+      - proxy-data:/app/data
+      - proxy-logs:/var/log/3proxy
+
+volumes:
+  proxy-data:
+  proxy-logs:

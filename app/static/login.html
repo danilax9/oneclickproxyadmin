@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Вход — Proxy Panel</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="min-h-screen flex items-center justify-center">
+  <div class="card p-8 w-full max-w-sm">
+    <h1 class="text-xl font-bold mb-1">🔐 Proxy Panel</h1>
+    <p class="text-sm mb-6" style="color: var(--muted)">Введите пароль администратора</p>
+    <form id="loginForm" class="flex flex-col gap-3">
+      <input id="password" type="password" placeholder="Пароль" class="input w-full" autofocus required>
+      <button type="submit" class="btn btn-primary w-full">Войти</button>
+      <p id="error" class="text-sm hidden" style="color: var(--danger)"></p>
+    </form>
+  </div>
+
+  <script>
+    const form = document.getElementById('loginForm');
+    const errorEl = document.getElementById('error');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errorEl.classList.add('hidden');
+      const password = document.getElementById('password').value;
+      const resp = await fetch('/api/login', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({password})
+      });
+      if (resp.ok) {
+        window.location.href = '/';
+      } else {
+        const data = await resp.json().catch(() => ({}));
+        errorEl.textContent = data.detail || 'Ошибка входа';
+        errorEl.classList.remove('hidden');
+      }
+    });
+  </script>
+</body>
+</html>

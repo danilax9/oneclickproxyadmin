@@ -1,0 +1,76 @@
+:root {
+  --bg: #0b0f14;
+  --card: #131a22;
+  --card-border: #1f2a35;
+  --text: #e6edf3;
+  --muted: #8b98a5;
+  --accent: #4f8cff;
+  --accent-hover: #6b9fff;
+  --danger: #ef4444;
+  --success: #22c55e;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+  margin: 0;
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--card-border);
+  border-radius: 1rem;
+}
+
+.btn {
+  border-radius: 0.75rem;
+  padding: 0.55rem 1rem;
+  font-weight: 600;
+  transition: background 0.15s ease, opacity 0.15s ease;
+  cursor: pointer;
+  border: none;
+}
+
+.btn-primary { background: var(--accent); color: white; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-danger { background: transparent; color: var(--danger); border: 1px solid rgba(239,68,68,0.4); }
+.btn-danger:hover { background: rgba(239,68,68,0.1); }
+.btn-ghost { background: transparent; color: var(--text); border: 1px solid var(--card-border); }
+.btn-ghost:hover { background: rgba(255,255,255,0.05); }
+
+.input {
+  background: #0e151c;
+  border: 1px solid var(--card-border);
+  border-radius: 0.75rem;
+  padding: 0.55rem 0.8rem;
+  color: var(--text);
+  outline: none;
+}
+.input:focus { border-color: var(--accent); }
+
+.badge {
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.badge-http { background: rgba(79,140,255,0.15); color: var(--accent); }
+.badge-https { background: rgba(34,197,94,0.15); color: var(--success); }
+.badge-blocked { background: rgba(239,68,68,0.15); color: var(--danger); }
+.badge-active { background: rgba(34,197,94,0.15); color: var(--success); }
+
+.link-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  background: #0e151c;
+  border: 1px solid var(--card-border);
+  border-radius: 0.6rem;
+  padding: 0.4rem 0.6rem;
+  word-break: break-all;
+}
+
+.scrollbar-thin::-webkit-scrollbar { width: 6px; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: var(--card-border); border-radius: 999px; }
