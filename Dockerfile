@@ -8,9 +8,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
-COPY patches/3proxy-ssl-fullchain.patch /tmp/3proxy-ssl-fullchain.patch
-RUN git clone --depth 1 --branch 0.9.5 https://github.com/3proxy/3proxy.git . \
-    && patch -p1 < /tmp/3proxy-ssl-fullchain.patch \
+COPY patches/apply-3proxy-ssl-fullchain.sh /tmp/apply-3proxy-ssl-fullchain.sh
+COPY patches/ssl_cli_ctx_from_files.c.frag /tmp/ssl_cli_ctx_from_files.c.frag
+RUN chmod +x /tmp/apply-3proxy-ssl-fullchain.sh \
+    && git clone --depth 1 --branch 0.9.5 https://github.com/3proxy/3proxy.git . \
+    && /tmp/apply-3proxy-ssl-fullchain.sh \
     && sed -i 's/^#LIBS = -lcrypto -lssl -ldl/LIBS = -lcrypto -lssl -ldl/' Makefile.Linux \
     && sed -i 's/^LIBS = -ldl *$/# LIBS = -ldl/' Makefile.Linux \
     && sed -i 's/^PLUGINS = StringsPlugin/PLUGINS = SSLPlugin StringsPlugin/' Makefile.Linux \
