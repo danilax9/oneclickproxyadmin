@@ -106,11 +106,8 @@ function updateOverviewStatus() {
   if (DOMAIN_SETTINGS.tls_ready || DOMAIN_SETTINGS.https_allowed) {
     sslEl.textContent = 'Готов';
     sslEl.style.color = 'var(--success)';
-  } else if (DOMAIN_SETTINGS.ssl_active) {
-    sslEl.textContent = 'Активен';
-    sslEl.style.color = 'var(--success)';
   } else {
-    sslEl.textContent = SSL_LABELS[DOMAIN_SETTINGS.ssl_status]?.text || 'Не настроен';
+    sslEl.textContent = 'Не настроен';
     sslEl.style.color = '';
   }
 
@@ -172,7 +169,7 @@ function updateStats() {
   document.getElementById('statPorts').textContent = PORTS.length;
   document.getElementById('statUsers').textContent = USERS.length;
   const domainEl = document.getElementById('statDomain');
-  if (DOMAIN_SETTINGS.ssl_active && DOMAIN_SETTINGS.domain) {
+  if (DOMAIN_SETTINGS.domain) {
     domainEl.textContent = DOMAIN_SETTINGS.domain;
     domainEl.title = DOMAIN_SETTINGS.domain;
   } else {
@@ -181,15 +178,6 @@ function updateStats() {
   }
   updateOverviewStatus();
 }
-
-const SSL_LABELS = {
-  none: { text: 'Не настроен', cls: 'badge-ssl-none' },
-  pending: { text: 'Ожидает DNS', cls: 'badge-ssl-pending' },
-  verified: { text: 'DNS проверен', cls: 'badge-ssl-pending' },
-  issuing: { text: 'Выпуск SSL…', cls: 'badge-ssl-pending' },
-  active: { text: 'SSL активен', cls: 'badge-ssl-active' },
-  error: { text: 'Ошибка', cls: 'badge-ssl-error' },
-};
 
 function syncHttpsPortOption() {
   const opt = document.getElementById('httpsPortOption');
@@ -200,40 +188,6 @@ function syncHttpsPortOption() {
   if (!HTTPS_ALLOWED && select.value === 'https') {
     select.value = 'http';
   }
-}
-
-const SSL_MODE_HINTS = {
-  caddy: 'Caddy займёт порты 80 и 443. Не подходит, если 443 уже занят Xray.',
-  dns: 'Автовыпуск через Cloudflare DNS. Нужен CF_API_TOKEN в .env на сервере.',
-  external: 'Без Cloudflare и без занятия 443. Укажите пути к сертификатам Xray.',
-};
-
-function renderSslGuide(guide) {
-  if (!guide) return;
-  const badge = document.getElementById('sslGuideBadge');
-  badge.textContent = guide.badge || 'Инструкция';
-  badge.className = 'ssl-guide-badge' + (guide.mode === 'dns' && !guide.cf_token_configured ? ' warn' : '');
-
-  document.getElementById('sslGuideTitle').textContent = guide.title || '';
-  document.getElementById('sslGuideSummary').textContent = guide.summary || '';
-
-  const stepsEl = document.getElementById('sslGuideSteps');
-  stepsEl.innerHTML = (guide.steps || []).map(step => `<li>${escapeHtml(step)}</li>`).join('');
-
-  const cmdEl = document.getElementById('sslGuideCommand');
-  if (guide.command) {
-    cmdEl.textContent = guide.command;
-    cmdEl.classList.remove('hidden');
-  } else {
-    cmdEl.classList.add('hidden');
-  }
-}
-
-function canActivateSsl(s) {
-  const mode = s.ssl_mode || 'external';
-  if (mode === 'dns' && !s.cf_token_configured) return false;
-  if (mode === 'external') return Boolean(s.tls_ready || s.https_allowed);
-  return Boolean(s.domain) && ['verified', 'error', 'active'].includes(s.ssl_status) && s.ssl_status !== 'issuing';
 }
 
 function buildProxyUrl(type, username, password, host, port) {
@@ -256,8 +210,6 @@ function renderDomainUI() {
   }
 
   document.getElementById('domainInput').value = s.domain || '';
-  document.getElementById('dnsValue').textContent = s.server_ip || SERVER_IP || '—';
-  document.getElementById('dnsName').textContent = s.domain || 'ваш домен';
   document.getElementById('certPathInput').value = s.cert_path || '';
   document.getElementById('keyPathInput').value = s.key_path || '';
 
@@ -269,7 +221,7 @@ function renderDomainUI() {
     const chainNote = s.cert_chain_ok === false
       ? ' ⚠ Укажите fullchain.pem (не cert.pem) — иначе клиенты не доверяют HTTPS-прокси.'
       : (s.cert_count ? ` Chain: ${s.cert_count} серт.` : '');
-    tlsStatusText.textContent = `HTTPS-прокси активны. Подключайтесь как https://user:pass@${s.domain || CONNECTION_HOST}:ПОРТ (не http).${sans ? ` SAN: ${sans}.` : ''}${chainNote}${s.ssl_active ? '' : ' Для HTTPS-панели: «Подключить HTTPS панели» ниже.'}`;
+    tlsStatusText.textContent = `HTTPS-прокси активны. Подключайтесь как https://user:pass@${s.domain || CONNECTION_HOST}:ПОРТ (не http).${sans ? ` SAN: ${sans}.` : ''}${chainNote}`;
     tlsStatusText.style.color = s.cert_domain_match === false ? 'var(--warning, #b45309)' : 'var(--success)';
     if (s.cert_domain_match === false) {
       tlsStatusText.textContent += ` Домен «${s.domain}» не найден в сертификате — клиент может ругаться на TLS.`;
@@ -284,57 +236,6 @@ function renderDomainUI() {
     tlsStatusText.style.color = 'var(--danger)';
   } else {
     tlsStatusBox.classList.add('hidden');
-  }
-
-  const mode = s.ssl_mode || 'external';
-  document.getElementById('sslModeInput').value = mode;
-  document.getElementById('sslModeHint').textContent = SSL_MODE_HINTS[mode] || '';
-  if (s.ssl_guide) renderSslGuide(s.ssl_guide);
-
-  const hasDomain = Boolean(s.domain);
-  document.getElementById('verifyDomainBtn').disabled = !hasDomain || s.ssl_status === 'issuing';
-  document.getElementById('activateSslBtn').disabled = !canActivateSsl(s);
-  document.getElementById('removeDomainBtn').disabled = !hasDomain || s.ssl_status === 'issuing';
-
-  const statusBox = document.getElementById('domainStatusBox');
-  const statusText = document.getElementById('domainStatusText');
-  const panelUrlBox = document.getElementById('panelUrlBox');
-  const panelUrlLink = document.getElementById('panelUrlLink');
-
-  if (s.ssl_error) {
-    statusBox.classList.remove('hidden');
-    statusText.textContent = s.ssl_error;
-    statusText.style.color = 'var(--danger)';
-  } else if (s.ssl_status === 'issuing') {
-    statusBox.classList.remove('hidden');
-    statusText.textContent = 'Выпуск SSL для панели…';
-    statusText.style.color = 'var(--text-secondary)';
-  } else if (s.ssl_active) {
-    statusBox.classList.remove('hidden');
-    statusText.textContent = 'HTTPS-панель активна.';
-    statusText.style.color = 'var(--success)';
-  } else {
-    statusBox.classList.add('hidden');
-  }
-
-  if (s.ssl_active && s.panel_url) {
-    panelUrlBox.classList.remove('hidden');
-    panelUrlLink.href = s.panel_url;
-    panelUrlLink.textContent = s.panel_url;
-  } else {
-    panelUrlBox.classList.add('hidden');
-  }
-
-  const xrayBox = document.getElementById('xrayHintBox');
-  const showXray = s.xray_hint && mode !== 'caddy' && (s.ssl_active || (mode === 'external' && tlsReady && s.tls_valid !== false));
-  if (showXray) {
-    xrayBox.classList.remove('hidden');
-    document.getElementById('xrayHintTitle').textContent = s.xray_hint.title;
-    document.getElementById('xrayHintSteps').innerHTML =
-      (s.xray_hint.steps || []).map(st => `<li>${escapeHtml(st)}</li>`).join('');
-    document.getElementById('xraySnippet').textContent = s.xray_hint.snippet || '';
-  } else {
-    xrayBox.classList.add('hidden');
   }
 
   syncHttpsPortOption();
@@ -566,95 +467,6 @@ document.getElementById('testHttpsBtn')?.addEventListener('click', async () => {
     btn.disabled = false;
     btn.textContent = 'Проверить HTTPS-прокси';
   }
-});
-
-document.getElementById('sslModeInput').addEventListener('change', async () => {
-  const mode = document.getElementById('sslModeInput').value;
-  try {
-    await api('/api/domain/ssl', { method: 'PATCH', body: JSON.stringify({ ssl_mode: mode }) });
-    await loadServerInfo();
-  } catch (e) {
-    document.getElementById('domainError').textContent = e.message;
-    document.getElementById('domainError').classList.remove('hidden');
-  }
-});
-
-async function saveTlsPathsForPanel() {
-  const cert_path = document.getElementById('certPathInput').value.trim();
-  const key_path = document.getElementById('keyPathInput').value.trim();
-  const domain = document.getElementById('domainInput').value.trim();
-  await api('/api/tls', {
-    method: 'POST',
-    body: JSON.stringify({ cert_path, key_path, domain: domain || null }),
-  });
-}
-
-document.getElementById('verifyDomainBtn').addEventListener('click', async () => {
-  const errorEl = document.getElementById('domainError');
-  errorEl.classList.add('hidden');
-  const btn = document.getElementById('verifyDomainBtn');
-  btn.disabled = true;
-  try {
-    await api('/api/domain/verify', { method: 'POST' });
-    await loadServerInfo();
-  } catch (e) {
-    errorEl.textContent = e.message;
-    errorEl.classList.remove('hidden');
-    await loadServerInfo();
-  } finally {
-    btn.disabled = false;
-  }
-});
-
-document.getElementById('activateSslBtn').addEventListener('click', async () => {
-  const errorEl = document.getElementById('domainError');
-  errorEl.classList.add('hidden');
-  const btn = document.getElementById('activateSslBtn');
-  btn.disabled = true;
-  btn.textContent = 'Подключение…';
-  try {
-    const mode = document.getElementById('sslModeInput').value;
-    if (mode === 'external') {
-      await discoverTlsFromDomain({ force: true });
-      await saveTlsPathsForPanel();
-    } else {
-      await api('/api/domain/ssl', {
-        method: 'PATCH',
-        body: JSON.stringify({ ssl_mode: mode }),
-      });
-    }
-    await api('/api/domain/activate', { method: 'POST' });
-    await loadServerInfo();
-    await loadPorts();
-    await loadUsers();
-  } catch (e) {
-    errorEl.textContent = e.message;
-    errorEl.classList.remove('hidden');
-    await loadServerInfo();
-  } finally {
-    btn.disabled = false;
-    renderDomainUI();
-  }
-});
-
-document.getElementById('removeDomainBtn').addEventListener('click', async () => {
-  if (!confirm('Отключить домен и SSL? HTTPS-порты нужно будет удалить заранее.')) return;
-  const errorEl = document.getElementById('domainError');
-  errorEl.classList.add('hidden');
-  try {
-    await api('/api/domain', { method: 'DELETE' });
-    await loadServerInfo();
-    await loadPorts();
-    await loadUsers();
-  } catch (e) {
-    errorEl.textContent = e.message;
-    errorEl.classList.remove('hidden');
-  }
-});
-
-document.getElementById('copyDnsBtn').addEventListener('click', async function () {
-  const ip = document.getElementById('dnsValue').textContent;
-  if (ip && ip !== '—') await copyToClipboard(ip, this);
 });
 
 // ------------------------------------------------------------------ Ports --

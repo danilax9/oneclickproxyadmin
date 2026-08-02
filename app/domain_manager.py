@@ -103,10 +103,9 @@ def get_connection_host(fallback_ip: str) -> str:
 
 
 def get_panel_url(fallback_ip: str) -> str:
-    s = get_settings()
-    if s.get("ssl_status") == "active" and s.get("domain"):
-        return f"https://{s['domain']}"
-    return f"http://{fallback_ip}:{PANEL_PORT}"
+    """Панель всегда HTTP на PANEL_PORT — не занимает 443."""
+    ip = fallback_ip if fallback_ip not in ("unknown", "", None) else "127.0.0.1"
+    return f"http://{ip}:{PANEL_PORT}"
 
 
 def validate_domain(domain: str) -> str:
@@ -910,12 +909,9 @@ async def activate_ssl() -> dict:
 
 
 def ensure_caddy():
+    """Caddy не запускается автоматически — панель не занимает 443."""
     settings = get_settings()
-    if (
-        settings.get("ssl_mode") == "caddy"
-        and settings.get("ssl_status") == "active"
-        and settings.get("domain")
-    ):
+    if settings.get("ssl_mode") == "caddy" and settings.get("ssl_status") == "active" and settings.get("domain"):
         start_caddy(settings["domain"])
 
 
@@ -1199,7 +1195,6 @@ def save_tls_config(
             fields["domain"] = auto
     _update_settings(**fields)
     invalidate_tls_cache()
-    _sync_panel_ssl_from_tls(fields.get("domain") or get_settings().get("domain"))
     return get_settings()
 
 
@@ -1215,13 +1210,6 @@ def public_settings(fallback_ip: str) -> dict:
     mode = s.get("ssl_mode", "external")
     active = is_ssl_active()
     tls = tls_status()
-    tls_ready = tls.get("valid", False)
-    show_xray = (
-        s.get("domain")
-        and mode in ("dns", "external")
-        and (active or (mode == "external" and tls_ready))
-    )
-    hint = xray_hint(s["domain"]) if show_xray else None
 
     guide = get_ssl_guide(mode, s.get("domain"), fallback_ip)
 
@@ -1246,7 +1234,7 @@ def public_settings(fallback_ip: str) -> dict:
         "cert_domain_match": tls.get("domain_match", True),
         "cert_chain_ok": tls.get("chain_ok", True),
         "cert_count": tls.get("cert_count", 0),
-        "xray_hint": hint,
+        "xray_hint": None,
         "cf_token_configured": is_cf_configured(),
         "ssl_guide": guide,
         "ssl_mode_labels": {
