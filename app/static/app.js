@@ -1,4 +1,7 @@
 let SERVER_IP = '';
+let CONNECTION_HOST = '';
+let HTTPS_ALLOWED = false;
+let DOMAIN_SETTINGS = {};
 let PORTS = [];
 let USERS = [];
 
@@ -78,7 +81,103 @@ async function copyToClipboard(text, btn) {
 function updateStats() {
   document.getElementById('statPorts').textContent = PORTS.length;
   document.getElementById('statUsers').textContent = USERS.length;
-  document.getElementById('statActive').textContent = USERS.filter(u => !u.blocked).length;
+  const domainEl = document.getElementById('statDomain');
+  if (DOMAIN_SETTINGS.ssl_active && DOMAIN_SETTINGS.domain) {
+    domainEl.textContent = DOMAIN_SETTINGS.domain;
+    domainEl.title = DOMAIN_SETTINGS.domain;
+  } else {
+    domainEl.textContent = '—';
+    domainEl.title = '';
+  }
+}
+
+const SSL_LABELS = {
+  none: { text: 'Не настроен', cls: 'badge-ssl-none' },
+  pending: { text: 'Ожидает DNS', cls: 'badge-ssl-pending' },
+  verified: { text: 'DNS проверен', cls: 'badge-ssl-pending' },
+  issuing: { text: 'Выпуск SSL…', cls: 'badge-ssl-pending' },
+  active: { text: 'SSL активен', cls: 'badge-ssl-active' },
+  error: { text: 'Ошибка', cls: 'badge-ssl-error' },
+};
+
+function syncHttpsPortOption() {
+  const opt = document.getElementById('httpsPortOption');
+  const hint = document.getElementById('httpsPortHint');
+  const select = document.getElementById('portTypeInput');
+  opt.disabled = !HTTPS_ALLOWED;
+  hint.classList.toggle('hidden', HTTPS_ALLOWED);
+  if (!HTTPS_ALLOWED && select.value === 'https') {
+    select.value = 'http';
+  }
+}
+
+function renderDomainUI() {
+  const s = DOMAIN_SETTINGS;
+  const badge = document.getElementById('sslBadge');
+  const label = SSL_LABELS[s.ssl_status] || SSL_LABELS.none;
+  badge.textContent = label.text;
+  badge.className = `badge ${label.cls}`;
+
+  document.getElementById('domainInput').value = s.domain || '';
+  document.getElementById('dnsValue').textContent = s.server_ip || SERVER_IP || '—';
+  document.getElementById('dnsName').textContent = s.domain || 'ваш домен';
+
+  const hasDomain = Boolean(s.domain);
+  document.getElementById('verifyDomainBtn').disabled = !hasDomain || s.ssl_status === 'issuing';
+  document.getElementById('activateSslBtn').disabled = !hasDomain || !['verified', 'error', 'active'].includes(s.ssl_status) || s.ssl_status === 'issuing';
+  document.getElementById('removeDomainBtn').disabled = !hasDomain || s.ssl_status === 'issuing';
+  document.getElementById('activateSslBtn').textContent = s.ssl_status === 'active' ? 'Перевыпустить SSL' : 'Выпустить SSL';
+
+  const statusBox = document.getElementById('domainStatusBox');
+  const statusText = document.getElementById('domainStatusText');
+  const panelUrlBox = document.getElementById('panelUrlBox');
+  const panelUrlLink = document.getElementById('panelUrlLink');
+
+  if (s.ssl_error) {
+    statusBox.classList.remove('hidden');
+    statusText.textContent = s.ssl_error;
+    statusText.style.color = 'var(--danger)';
+  } else if (s.ssl_status === 'issuing') {
+    statusBox.classList.remove('hidden');
+    statusText.textContent = 'Выпуск сертификата Let\'s Encrypt… Подождите до 2 минут.';
+    statusText.style.color = 'var(--text-secondary)';
+  } else if (s.ssl_active) {
+    statusBox.classList.remove('hidden');
+    statusText.textContent = 'Домен подключён. HTTPS-панель и HTTPS-прокси доступны.';
+    statusText.style.color = 'var(--success)';
+  } else if (hasDomain) {
+    statusBox.classList.remove('hidden');
+    statusText.textContent = 'Добавьте A-запись и проверьте DNS, затем выпустите SSL.';
+    statusText.style.color = 'var(--text-secondary)';
+  } else {
+    statusBox.classList.add('hidden');
+  }
+
+  if (s.ssl_active && s.panel_url) {
+    panelUrlBox.classList.remove('hidden');
+    panelUrlLink.href = s.panel_url;
+    panelUrlLink.textContent = s.panel_url;
+  } else {
+    panelUrlBox.classList.add('hidden');
+  }
+
+  syncHttpsPortOption();
+  updateStats();
+}
+
+function applyDomainSettings(info) {
+  DOMAIN_SETTINGS = {
+    domain: info.domain,
+    ssl_status: info.ssl_status,
+    ssl_error: info.ssl_error,
+    ssl_active: info.ssl_active,
+    https_allowed: info.https_allowed,
+    panel_url: info.panel_url,
+    server_ip: info.server_ip || info.ip,
+  };
+  HTTPS_ALLOWED = Boolean(info.https_allowed);
+  CONNECTION_HOST = info.connection_host || info.ip || SERVER_IP;
+  renderDomainUI();
 }
 
 // ----------------------------------------------------------- Server info --
@@ -86,18 +185,91 @@ function updateStats() {
 async function loadServerInfo() {
   const info = await api('/api/server-info');
   SERVER_IP = info.ip;
+  CONNECTION_HOST = info.connection_host || info.ip;
+  HTTPS_ALLOWED = Boolean(info.https_allowed);
   document.getElementById('serverIp').textContent = info.ip;
 
   const statusEl = document.getElementById('proxyStatus');
   const dotEl = document.getElementById('proxyDot');
-  if (info.proxy_running) {
-    statusEl.textContent = 'Работает';
-    dotEl.className = 'status-dot online';
-  } else {
-    statusEl.textContent = 'Остановлен';
-    dotEl.className = 'status-dot offline';
-  }
+  const running = info.proxy_running;
+  statusEl.textContent = running ? 'Работает' : 'Остановлен';
+  dotEl.className = `status-dot ${running ? 'online' : 'offline'}`;
+
+  applyDomainSettings(info);
 }
+
+// -------------------------------------------------------------- Domain ---
+
+document.getElementById('saveDomainBtn').addEventListener('click', async () => {
+  const domain = document.getElementById('domainInput').value.trim();
+  const errorEl = document.getElementById('domainError');
+  errorEl.classList.add('hidden');
+  try {
+    await api('/api/domain', { method: 'PUT', body: JSON.stringify({ domain }) });
+    await loadServerInfo();
+  } catch (e) {
+    errorEl.textContent = e.message;
+    errorEl.classList.remove('hidden');
+  }
+});
+
+document.getElementById('verifyDomainBtn').addEventListener('click', async () => {
+  const errorEl = document.getElementById('domainError');
+  errorEl.classList.add('hidden');
+  const btn = document.getElementById('verifyDomainBtn');
+  btn.disabled = true;
+  try {
+    await api('/api/domain/verify', { method: 'POST' });
+    await loadServerInfo();
+  } catch (e) {
+    errorEl.textContent = e.message;
+    errorEl.classList.remove('hidden');
+    await loadServerInfo();
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('activateSslBtn').addEventListener('click', async () => {
+  const errorEl = document.getElementById('domainError');
+  errorEl.classList.add('hidden');
+  const btn = document.getElementById('activateSslBtn');
+  btn.disabled = true;
+  btn.textContent = 'Выпуск SSL…';
+  try {
+    await api('/api/domain/activate', { method: 'POST' });
+    await loadServerInfo();
+    await loadPorts();
+    await loadUsers();
+  } catch (e) {
+    errorEl.textContent = e.message;
+    errorEl.classList.remove('hidden');
+    await loadServerInfo();
+  } finally {
+    btn.disabled = false;
+    renderDomainUI();
+  }
+});
+
+document.getElementById('removeDomainBtn').addEventListener('click', async () => {
+  if (!confirm('Отключить домен и SSL? HTTPS-порты нужно будет удалить заранее.')) return;
+  const errorEl = document.getElementById('domainError');
+  errorEl.classList.add('hidden');
+  try {
+    await api('/api/domain', { method: 'DELETE' });
+    await loadServerInfo();
+    await loadPorts();
+    await loadUsers();
+  } catch (e) {
+    errorEl.textContent = e.message;
+    errorEl.classList.remove('hidden');
+  }
+});
+
+document.getElementById('copyDnsBtn').addEventListener('click', async function () {
+  const ip = document.getElementById('dnsValue').textContent;
+  if (ip && ip !== '—') await copyToClipboard(ip, this);
+});
 
 // ------------------------------------------------------------------ Ports --
 
@@ -135,6 +307,7 @@ async function loadPorts() {
 document.getElementById('addPortBtn').addEventListener('click', () => {
   document.getElementById('portInput').value = '';
   document.getElementById('portError').classList.add('hidden');
+  syncHttpsPortOption();
   openModal('portModal');
 });
 
@@ -201,7 +374,8 @@ async function loadUsers() {
     const linkEls = item.querySelectorAll('.proxy-link');
     const copyBtns = item.querySelectorAll('.copy-btn');
     (u.ports || []).forEach((p, idx) => {
-      const link = `${p.type}://${u.username}:${u.password}@${SERVER_IP}:${p.port}`;
+      const host = p.type === 'https' ? CONNECTION_HOST : SERVER_IP;
+      const link = `${p.type}://${u.username}:${u.password}@${host}:${p.port}`;
       linkEls[idx].textContent = link;
       copyBtns[idx].addEventListener('click', () => copyToClipboard(link, copyBtns[idx]));
     });

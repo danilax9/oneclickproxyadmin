@@ -42,10 +42,56 @@
         <div class="stat-value" id="statUsers">0</div>
       </div>
       <div class="stat-card">
-        <div class="stat-label">Активные</div>
-        <div class="stat-value" id="statActive">0</div>
+        <div class="stat-label">Домен</div>
+        <div class="stat-value stat-value-sm" id="statDomain">—</div>
       </div>
     </div>
+
+    <section class="panel" id="domainPanel">
+      <div class="panel-header">
+        <div>
+          <h2 class="panel-title">Домен и SSL</h2>
+          <p class="panel-subtitle">HTTPS-панель и HTTPS-прокси работают только с подключённым доменом</p>
+        </div>
+        <span class="badge badge-ssl-none" id="sslBadge">Не настроен</span>
+      </div>
+      <div class="panel-body padded">
+        <div class="domain-grid">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" for="domainInput">Домен</label>
+            <input id="domainInput" type="text" placeholder="proxy.example.com" class="input">
+            <p class="form-hint">Укажите поддомен или домен, который контролируете</p>
+          </div>
+          <div class="domain-actions">
+            <button id="saveDomainBtn" class="btn btn-primary btn-sm">Сохранить</button>
+            <button id="verifyDomainBtn" class="btn btn-secondary btn-sm" disabled>Проверить DNS</button>
+            <button id="activateSslBtn" class="btn btn-primary btn-sm" disabled>Выпустить SSL</button>
+            <button id="removeDomainBtn" class="btn btn-danger btn-sm" disabled>Отключить</button>
+          </div>
+        </div>
+
+        <div class="dns-instructions" id="dnsInstructions">
+          <div class="dns-instructions-title">Настройка DNS</div>
+          <div class="dns-record">
+            <span class="dns-record-type">A</span>
+            <span class="dns-record-name" id="dnsName">@</span>
+            <span class="dns-record-value" id="dnsValue">—</span>
+            <button type="button" class="btn btn-icon btn-sm" id="copyDnsBtn" title="Копировать IP">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+            </button>
+          </div>
+          <p class="form-hint">После добавления записи нажмите «Проверить DNS», затем «Выпустить SSL»</p>
+        </div>
+
+        <div class="domain-status hidden" id="domainStatusBox">
+          <p class="domain-status-text" id="domainStatusText"></p>
+          <p class="domain-panel-url hidden" id="panelUrlBox">
+            Панель: <a id="panelUrlLink" href="#" target="_blank" rel="noopener"></a>
+          </p>
+        </div>
+        <p id="domainError" class="form-error hidden"></p>
+      </div>
+    </section>
 
     <section class="panel">
       <div class="panel-header">
@@ -119,8 +165,9 @@
         <label class="form-label" for="portTypeInput">Протокол</label>
         <select id="portTypeInput" class="select">
           <option value="http">HTTP</option>
-          <option value="https">HTTPS</option>
+          <option value="https" id="httpsPortOption">HTTPS</option>
         </select>
+        <p class="form-hint hidden" id="httpsPortHint">HTTPS доступен только после выпуска SSL-сертификата для домена</p>
       </div>
       <p id="portError" class="form-error hidden"></p>
     </div>

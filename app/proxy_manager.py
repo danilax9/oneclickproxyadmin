@@ -9,6 +9,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
+from app import domain_manager
 from app.database import db_cursor, now
 
 CONFIG_PATH = Path(os.environ.get("PROXY_CONFIG_PATH", "/app/data/3proxy.cfg"))
@@ -30,9 +31,17 @@ def list_ports():
         return [dict(r) for r in rows]
 
 
+def count_https_ports() -> int:
+    with db_cursor() as cur:
+        row = cur.execute("SELECT COUNT(*) AS c FROM ports WHERE type='https'").fetchone()
+        return row["c"] if row else 0
+
+
 def create_port(port: int, ptype: str):
     if ptype not in ("http", "https"):
         raise ValueError("type must be 'http' or 'https'")
+    if ptype == "https":
+        domain_manager.require_https_allowed()
     if not (1 <= port <= 65535):
         raise ValueError("port must be in range 1-65535")
     with db_cursor(write=True) as cur:
@@ -157,6 +166,9 @@ def _build_config_text() -> str:
     if not ports:
         lines.append("# Портов пока нет — 3proxy запущен без активных прокси-сервисов")
 
+    domain = domain_manager.get_settings().get("domain") if domain_manager.is_ssl_active() else None
+    cert_paths = domain_manager.find_cert_paths(domain) if domain else None
+
     for p in ports:
         allowed = [users_by_id[uid]["username"] for uid in port_to_users.get(p["id"], []) if uid in users_by_id]
         lines.append(f"# Порт {p['port']} ({p['type']})")
@@ -164,12 +176,16 @@ def _build_config_text() -> str:
         if allowed:
             lines.append(f"allow {','.join(allowed)}")
         else:
-            # Ни одного пользователя не привязано -> никого не пускаем
             lines.append("deny *")
-        # 3proxy 'proxy' сервис сам умеет обрабатывать как обычный HTTP,
-        # так и HTTPS через метод CONNECT (туннелирование), поэтому для
-        # обоих типов используется один и тот же сервис.
-        lines.append(f"proxy -p{p['port']}")
+        if p["type"] == "https":
+            if not cert_paths:
+                lines.append(f"# HTTPS-порт {p['port']} отключён: нет SSL-сертификата")
+                lines.append("deny *")
+            else:
+                lines.append(f"sslcert {cert_paths[0]} {cert_paths[1]}")
+                lines.append(f"proxy -p{p['port']} -e")
+        else:
+            lines.append(f"proxy -p{p['port']}")
         lines.append("")
 
     return "\n".join(lines) + "\n"

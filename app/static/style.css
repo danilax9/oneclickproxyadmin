@@ -135,6 +135,14 @@ body {
   color: var(--text);
 }
 
+.stat-value-sm {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* ── Panel ──────────────────────────────────────────── */
 
 .panel {
@@ -456,6 +464,26 @@ table.data-table tbody tr:hover td {
   color: var(--success);
 }
 
+.badge-ssl-none {
+  background: var(--bg);
+  color: var(--text-muted);
+}
+
+.badge-ssl-pending {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.badge-ssl-active {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.badge-ssl-error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .badge-blocked {
   background: var(--danger-soft);
   color: var(--danger);
@@ -679,6 +707,96 @@ table.data-table tbody tr:hover td {
   font-size: 12px;
   color: var(--text-muted);
   text-align: center;
+}
+
+/* ── Domain panel ───────────────────────────────────── */
+
+.domain-grid {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: end;
+  margin-bottom: 20px;
+}
+
+.domain-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.dns-instructions {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 16px;
+}
+
+.dns-instructions-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+
+.dns-record {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.dns-record-type,
+.dns-record-name,
+.dns-record-value {
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.dns-record-value {
+  flex: 1;
+  min-width: 120px;
+}
+
+.domain-status {
+  padding: 12px 14px;
+  background: var(--bg);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+}
+
+.domain-status-text {
+  margin: 0;
+  font-size: 13px;
+}
+
+.domain-panel-url {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.domain-panel-url a {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.domain-panel-url a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 768px) {
+  .domain-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ── Scrollbar ──────────────────────────────────────── */

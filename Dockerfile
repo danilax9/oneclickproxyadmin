@@ -18,9 +18,11 @@ RUN git clone --depth 1 --branch 0.9.5 https://github.com/3proxy/3proxy.git . \
 FROM python:3.12-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates \
+        ca-certificates curl \
+    && curl -fsSL "https://caddyserver.com/api/download?os=linux&arch=amd64" -o /usr/local/bin/caddy \
+    && chmod +x /usr/local/bin/caddy \
     && rm -rf /var/lib/apt/lists/* \
-    && mkdir -p /var/log/3proxy /app/data
+    && mkdir -p /var/log/3proxy /app/data/caddy
 
 COPY --from=proxy-build /usr/local/bin/3proxy /usr/local/bin/3proxy
 
@@ -37,6 +39,9 @@ ENV PYTHONUNBUFFERED=1 \
     PROXY_CONFIG_PATH=/app/data/3proxy.cfg \
     PROXY_LOG_DIR=/var/log/3proxy \
     THREEPROXY_BIN=/usr/local/bin/3proxy \
+    CADDY_BIN=/usr/local/bin/caddy \
+    CADDY_DATA=/app/data/caddy \
+    CADDYFILE_PATH=/app/data/Caddyfile \
     PANEL_PORT=8000
 
 EXPOSE 8000

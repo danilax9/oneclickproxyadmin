@@ -11,6 +11,7 @@ services:
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-changeme}
       PANEL_PORT: ${PANEL_PORT:-8000}
       SECRET_KEY: ${SECRET_KEY:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
     volumes:
       - proxy-data:/app/data
       - proxy-logs:/var/log/3proxy

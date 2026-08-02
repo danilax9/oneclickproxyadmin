@@ -6,7 +6,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app import auth, proxy_manager, utils
+from app import auth, domain_manager, proxy_manager, utils
 from app.database import init_db
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -19,12 +19,14 @@ app = FastAPI(title="Proxy Panel")
 @app.on_event("startup")
 def on_startup():
     init_db()
+    domain_manager.ensure_caddy()
     proxy_manager.start()
 
 
 @app.on_event("shutdown")
 def on_shutdown():
     proxy_manager.stop()
+    domain_manager.stop_caddy()
 
 
 # ----------------------------------------------------------------- Auth ----
@@ -73,7 +75,63 @@ def me(_: bool = Depends(require_auth)):
 @app.get("/api/server-info")
 async def server_info(_: bool = Depends(require_auth)):
     ip = await utils.get_external_ip()
-    return {"ip": ip, "proxy_running": proxy_manager.is_running()}
+    domain = domain_manager.public_settings(ip)
+    return {
+        "ip": ip,
+        "proxy_running": proxy_manager.is_running(),
+        "caddy_running": domain_manager.is_caddy_running(),
+        **domain,
+    }
+
+
+# ----------------------------------------------------------------- Domain --
+
+class DomainBody(BaseModel):
+    domain: str = Field(min_length=1, max_length=253)
+
+
+@app.get("/api/domain")
+async def get_domain(_: bool = Depends(require_auth)):
+    ip = await utils.get_external_ip()
+    return domain_manager.public_settings(ip)
+
+
+@app.put("/api/domain")
+def save_domain(body: DomainBody, _: bool = Depends(require_auth)):
+    try:
+        domain_manager.set_domain(body.domain)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
+
+
+@app.post("/api/domain/verify")
+async def verify_domain(_: bool = Depends(require_auth)):
+    ip = await utils.get_external_ip()
+    try:
+        return domain_manager.verify_dns(ip)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/domain/activate")
+async def activate_domain(_: bool = Depends(require_auth)):
+    try:
+        result = await domain_manager.activate_ssl()
+        proxy_manager.reload()
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.delete("/api/domain")
+def delete_domain(_: bool = Depends(require_auth)):
+    try:
+        domain_manager.remove_domain()
+        proxy_manager.reload()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
 
 
 # ------------------------------------------------------------------ Ports --

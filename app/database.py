@@ -65,6 +65,19 @@ def init_db():
                 port_id INTEGER NOT NULL REFERENCES ports(id) ON DELETE CASCADE,
                 PRIMARY KEY (user_id, port_id)
             );
+
+            CREATE TABLE IF NOT EXISTS domain_settings (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                domain TEXT,
+                ssl_status TEXT NOT NULL DEFAULT 'none',
+                ssl_error TEXT,
+                verified_at INTEGER,
+                ssl_issued_at INTEGER,
+                updated_at INTEGER NOT NULL DEFAULT 0
+            );
+
+            INSERT OR IGNORE INTO domain_settings (id, domain, ssl_status, updated_at)
+            VALUES (1, NULL, 'none', 0);
             """
         )
 
