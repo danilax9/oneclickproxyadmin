@@ -111,6 +111,12 @@ function syncHttpsPortOption() {
   }
 }
 
+const SSL_MODE_HINTS = {
+  caddy: 'Caddy займёт порты 80 и 443. Не подходит, если 443 уже занят Xray.',
+  dns: 'Сертификат через DNS Cloudflare. Порт 443 не занимается — совместимо с Xray.',
+  external: 'Используйте сертификаты Xray/acme.sh. Панель пробрасывается через fallback Xray.',
+};
+
 function renderDomainUI() {
   const s = DOMAIN_SETTINGS;
   const badge = document.getElementById('sslBadge');
@@ -121,6 +127,14 @@ function renderDomainUI() {
   document.getElementById('domainInput').value = s.domain || '';
   document.getElementById('dnsValue').textContent = s.server_ip || SERVER_IP || '—';
   document.getElementById('dnsName').textContent = s.domain || 'ваш домен';
+
+  const mode = s.ssl_mode || 'dns';
+  document.getElementById('sslModeInput').value = mode;
+  document.getElementById('sslModeHint').textContent = SSL_MODE_HINTS[mode] || '';
+  document.getElementById('externalCertFields').classList.toggle('hidden', mode !== 'external');
+  document.getElementById('dnsModeFields').classList.toggle('hidden', mode !== 'dns');
+  document.getElementById('certPathInput').value = s.cert_path || '';
+  document.getElementById('keyPathInput').value = s.key_path || '';
 
   const hasDomain = Boolean(s.domain);
   document.getElementById('verifyDomainBtn').disabled = !hasDomain || s.ssl_status === 'issuing';
@@ -143,11 +157,14 @@ function renderDomainUI() {
     statusText.style.color = 'var(--text-secondary)';
   } else if (s.ssl_active) {
     statusBox.classList.remove('hidden');
-    statusText.textContent = 'Домен подключён. HTTPS-панель и HTTPS-прокси доступны.';
+    const modeNote = mode === 'caddy'
+      ? 'Caddy обслуживает HTTPS-панель.'
+      : 'Сертификат готов. Настройте Xray fallback для HTTPS-панели (см. ниже).';
+    statusText.textContent = `Домен подключён. ${modeNote}`;
     statusText.style.color = 'var(--success)';
   } else if (hasDomain) {
     statusBox.classList.remove('hidden');
-    statusText.textContent = 'Добавьте A-запись и проверьте DNS, затем выпустите SSL.';
+    statusText.textContent = 'Добавьте A-запись, проверьте DNS и выпустите SSL.';
     statusText.style.color = 'var(--text-secondary)';
   } else {
     statusBox.classList.add('hidden');
@@ -161,6 +178,17 @@ function renderDomainUI() {
     panelUrlBox.classList.add('hidden');
   }
 
+  const xrayBox = document.getElementById('xrayHintBox');
+  if (s.ssl_active && s.xray_hint && mode !== 'caddy') {
+    xrayBox.classList.remove('hidden');
+    document.getElementById('xrayHintTitle').textContent = s.xray_hint.title;
+    const stepsEl = document.getElementById('xrayHintSteps');
+    stepsEl.innerHTML = (s.xray_hint.steps || []).map(st => `<li>${escapeHtml(st)}</li>`).join('');
+    document.getElementById('xraySnippet').textContent = s.xray_hint.snippet || '';
+  } else {
+    xrayBox.classList.add('hidden');
+  }
+
   syncHttpsPortOption();
   updateStats();
 }
@@ -168,12 +196,16 @@ function renderDomainUI() {
 function applyDomainSettings(info) {
   DOMAIN_SETTINGS = {
     domain: info.domain,
+    ssl_mode: info.ssl_mode || 'dns',
     ssl_status: info.ssl_status,
     ssl_error: info.ssl_error,
     ssl_active: info.ssl_active,
     https_allowed: info.https_allowed,
     panel_url: info.panel_url,
     server_ip: info.server_ip || info.ip,
+    cert_path: info.cert_path,
+    key_path: info.key_path,
+    xray_hint: info.xray_hint,
   };
   HTTPS_ALLOWED = Boolean(info.https_allowed);
   CONNECTION_HOST = info.connection_host || info.ip || SERVER_IP;
@@ -202,11 +234,44 @@ async function loadServerInfo() {
 
 document.getElementById('saveDomainBtn').addEventListener('click', async () => {
   const domain = document.getElementById('domainInput').value.trim();
+  const ssl_mode = document.getElementById('sslModeInput').value;
   const errorEl = document.getElementById('domainError');
   errorEl.classList.add('hidden');
   try {
-    await api('/api/domain', { method: 'PUT', body: JSON.stringify({ domain }) });
+    await api('/api/domain', { method: 'PUT', body: JSON.stringify({ domain, ssl_mode }) });
+    if (ssl_mode === 'external') {
+      await saveSslModePaths(false);
+    }
     await loadServerInfo();
+  } catch (e) {
+    errorEl.textContent = e.message;
+    errorEl.classList.remove('hidden');
+  }
+});
+
+document.getElementById('sslModeInput').addEventListener('change', () => {
+  const mode = document.getElementById('sslModeInput').value;
+  document.getElementById('sslModeHint').textContent = SSL_MODE_HINTS[mode] || '';
+  document.getElementById('externalCertFields').classList.toggle('hidden', mode !== 'external');
+  document.getElementById('dnsModeFields').classList.toggle('hidden', mode !== 'dns');
+});
+
+async function saveSslModePaths(reload = true) {
+  const ssl_mode = document.getElementById('sslModeInput').value;
+  const cert_path = document.getElementById('certPathInput').value.trim();
+  const key_path = document.getElementById('keyPathInput').value.trim();
+  await api('/api/domain/ssl', {
+    method: 'PATCH',
+    body: JSON.stringify({ ssl_mode, cert_path: cert_path || null, key_path: key_path || null }),
+  });
+  if (reload) await loadServerInfo();
+}
+
+document.getElementById('saveSslModeBtn').addEventListener('click', async () => {
+  const errorEl = document.getElementById('domainError');
+  errorEl.classList.add('hidden');
+  try {
+    await saveSslModePaths(true);
   } catch (e) {
     errorEl.textContent = e.message;
     errorEl.classList.remove('hidden');
@@ -237,6 +302,15 @@ document.getElementById('activateSslBtn').addEventListener('click', async () => 
   btn.disabled = true;
   btn.textContent = 'Выпуск SSL…';
   try {
+    const mode = document.getElementById('sslModeInput').value;
+    if (mode === 'external') {
+      await saveSslModePaths(false);
+    } else {
+      await api('/api/domain/ssl', {
+        method: 'PATCH',
+        body: JSON.stringify({ ssl_mode: mode }),
+      });
+    }
     await api('/api/domain/activate', { method: 'POST' });
     await loadServerInfo();
     await loadPorts();

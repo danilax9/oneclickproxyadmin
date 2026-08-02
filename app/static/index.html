@@ -70,6 +70,35 @@
           </div>
         </div>
 
+        <div class="form-group">
+          <label class="form-label" for="sslModeInput">Режим SSL</label>
+          <select id="sslModeInput" class="select">
+            <option value="dns">DNS — Let's Encrypt (443 не нужен, Cloudflare)</option>
+            <option value="external">Внешний — сертификаты Xray / acme.sh</option>
+            <option value="caddy">Caddy — автоматически (нужны свободные 80/443)</option>
+          </select>
+          <p class="form-hint" id="sslModeHint">Если 443 занят Xray — выберите DNS или Внешний</p>
+        </div>
+
+        <div id="externalCertFields" class="external-cert-fields hidden">
+          <div class="form-group">
+            <label class="form-label" for="certPathInput">Путь к сертификату (fullchain)</label>
+            <input id="certPathInput" type="text" placeholder="/etc/xray/cert/fullchain.pem" class="input">
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" for="keyPathInput">Путь к ключу</label>
+            <input id="keyPathInput" type="text" placeholder="/etc/xray/cert/key.pem" class="input">
+            <p class="form-hint">Смонтируйте каталог с сертификатами в docker-compose (например /etc/xray:/etc/xray:ro)</p>
+          </div>
+          <div class="domain-actions" style="margin-top:12px">
+            <button id="saveSslModeBtn" class="btn btn-secondary btn-sm">Сохранить пути</button>
+          </div>
+        </div>
+
+        <div id="dnsModeFields" class="dns-mode-note">
+          <p class="form-hint">DNS-режим: добавьте <code>CF_API_TOKEN</code> в <code>.env</code> (Cloudflare API Token с правом DNS:Edit). Порт 443 не занимается.</p>
+        </div>
+
         <div class="dns-instructions" id="dnsInstructions">
           <div class="dns-instructions-title">Настройка DNS</div>
           <div class="dns-record">
@@ -88,6 +117,12 @@
           <p class="domain-panel-url hidden" id="panelUrlBox">
             Панель: <a id="panelUrlLink" href="#" target="_blank" rel="noopener"></a>
           </p>
+        </div>
+
+        <div class="xray-hint hidden" id="xrayHintBox">
+          <div class="xray-hint-title" id="xrayHintTitle"></div>
+          <ul class="xray-hint-steps" id="xrayHintSteps"></ul>
+          <pre class="xray-snippet" id="xraySnippet"></pre>
         </div>
         <p id="domainError" class="form-error hidden"></p>
       </div>

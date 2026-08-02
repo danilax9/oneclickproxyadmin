@@ -167,7 +167,7 @@ def _build_config_text() -> str:
         lines.append("# Портов пока нет — 3proxy запущен без активных прокси-сервисов")
 
     domain = domain_manager.get_settings().get("domain") if domain_manager.is_ssl_active() else None
-    cert_paths = domain_manager.find_cert_paths(domain) if domain else None
+    cert_paths = domain_manager.get_cert_paths() if domain else None
 
     for p in ports:
         allowed = [users_by_id[uid]["username"] for uid in port_to_users.get(p["id"], []) if uid in users_by_id]

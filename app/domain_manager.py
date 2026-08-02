@@ -1,6 +1,10 @@
 """
-Управление доменом и SSL-сертификатами через Caddy (Let's Encrypt).
-HTTPS-порты и строки подключения https:// доступны только при активном SSL.
+Управление доменом и SSL.
+
+Режимы (ssl_mode):
+  caddy    — автоматически через Caddy на 80/443 (если порты свободны)
+  dns      — Let's Encrypt через DNS-01 (acme.sh + Cloudflare), 443 не нужен
+  external — готовые сертификаты (например, от Xray/acme.sh), 443 не занимаем
 """
 import asyncio
 import os
@@ -19,9 +23,13 @@ DOMAIN_RE = re.compile(
     re.IGNORECASE,
 )
 
+SSL_MODES = ("caddy", "dns", "external")
+
 CADDY_BIN = os.environ.get("CADDY_BIN", "/usr/local/bin/caddy")
 CADDY_DATA = Path(os.environ.get("CADDY_DATA", "/app/data/caddy"))
 CADDYFILE_PATH = Path(os.environ.get("CADDYFILE_PATH", "/app/data/Caddyfile"))
+CERTS_DIR = Path(os.environ.get("CERTS_DIR", "/app/data/certs"))
+ACME_SH = Path(os.environ.get("ACME_SH", "/root/.acme.sh/acme.sh"))
 PANEL_PORT = int(os.environ.get("PANEL_PORT", "8000"))
 ACME_EMAIL = os.environ.get("ACME_EMAIL", "").strip()
 
@@ -29,6 +37,7 @@ _proc_lock = threading.Lock()
 _process: Optional[subprocess.Popen] = None
 
 CADDY_DATA.mkdir(parents=True, exist_ok=True)
+CERTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _row_to_dict(row) -> dict:
@@ -38,15 +47,23 @@ def _row_to_dict(row) -> dict:
 def get_settings() -> dict:
     with db_cursor() as cur:
         row = cur.execute("SELECT * FROM domain_settings WHERE id=1").fetchone()
-    return _row_to_dict(row) or {
-        "id": 1,
-        "domain": None,
-        "ssl_status": "none",
-        "ssl_error": None,
-        "verified_at": None,
-        "ssl_issued_at": None,
-        "updated_at": 0,
-    }
+    data = _row_to_dict(row) or {}
+    if not data:
+        return {
+            "id": 1,
+            "domain": None,
+            "ssl_mode": "dns",
+            "ssl_status": "none",
+            "ssl_error": None,
+            "cert_path": None,
+            "key_path": None,
+            "verified_at": None,
+            "ssl_issued_at": None,
+            "updated_at": 0,
+        }
+    if not data.get("ssl_mode"):
+        data["ssl_mode"] = "dns"
+    return data
 
 
 def _update_settings(**fields):
@@ -87,18 +104,64 @@ def validate_domain(domain: str) -> str:
     return domain
 
 
-def set_domain(domain: str) -> dict:
+def validate_ssl_mode(mode: str) -> str:
+    mode = (mode or "dns").strip().lower()
+    if mode not in SSL_MODES:
+        raise ValueError(f"Режим SSL должен быть один из: {', '.join(SSL_MODES)}")
+    return mode
+
+
+def validate_cert_path(path: str, label: str) -> str:
+    path = path.strip()
+    if not path:
+        raise ValueError(f"Укажите путь к {label}")
+    p = Path(path)
+    if not p.is_file():
+        raise ValueError(f"Файл не найден: {path}")
+    if not os.access(p, os.R_OK):
+        raise ValueError(f"Нет доступа на чтение: {path}")
+    return str(p.resolve())
+
+
+def set_domain(domain: str, ssl_mode: Optional[str] = None) -> dict:
     domain = validate_domain(domain)
     current = get_settings()
+    mode = validate_ssl_mode(ssl_mode) if ssl_mode else current.get("ssl_mode", "dns")
+
     if current.get("domain") != domain:
         stop_caddy()
+
     _update_settings(
         domain=domain,
+        ssl_mode=mode,
         ssl_status="pending",
         ssl_error=None,
         verified_at=None,
         ssl_issued_at=None,
     )
+    return get_settings()
+
+
+def set_ssl_mode(ssl_mode: str, cert_path: Optional[str] = None, key_path: Optional[str] = None) -> dict:
+    mode = validate_ssl_mode(ssl_mode)
+    fields: dict = {"ssl_mode": mode}
+
+    if mode == "external":
+        if not cert_path or not key_path:
+            raise ValueError("Для внешнего режима укажите пути к сертификату и ключу")
+        fields["cert_path"] = validate_cert_path(cert_path, "сертификату")
+        fields["key_path"] = validate_cert_path(key_path, "ключу")
+    else:
+        fields["cert_path"] = cert_path.strip() if cert_path else None
+        fields["key_path"] = key_path.strip() if key_path else None
+
+    if mode != "caddy":
+        stop_caddy()
+
+    if get_settings().get("ssl_status") == "active" and mode == "external":
+        fields["ssl_status"] = "verified"
+
+    _update_settings(**fields)
     return get_settings()
 
 
@@ -112,6 +175,8 @@ def remove_domain() -> dict:
         domain=None,
         ssl_status="none",
         ssl_error=None,
+        cert_path=None,
+        key_path=None,
         verified_at=None,
         ssl_issued_at=None,
     )
@@ -131,13 +196,13 @@ def verify_dns(expected_ip: str) -> dict:
         results = socket.getaddrinfo(domain, None, socket.AF_INET)
         resolved = {item[4][0] for item in results}
     except socket.gaierror:
-        _update_settings(ssl_status="error", ssl_error="DNS-запись не найдена. Добавьте A-запись на IP сервера.")
+        _update_settings(ssl_status="error", ssl_error="DNS-запись не найдена.")
         raise ValueError("DNS-запись не найдена. Добавьте A-запись, указывающую на IP сервера.")
 
     if expected_ip not in resolved:
         _update_settings(
             ssl_status="error",
-            ssl_error=f"Домен указывает на {', '.join(sorted(resolved))}, ожидается {expected_ip}",
+            ssl_error=f"Домен → {', '.join(sorted(resolved))}, ожидается {expected_ip}",
         )
         raise ValueError(
             f"Домен указывает на {', '.join(sorted(resolved))}, а IP сервера — {expected_ip}"
@@ -147,13 +212,79 @@ def verify_dns(expected_ip: str) -> dict:
     return get_settings()
 
 
-def find_cert_paths(domain: str) -> Optional[tuple[str, str]]:
+def _find_caddy_cert_paths(domain: str) -> Optional[tuple[str, str]]:
     for cert_dir in CADDY_DATA.glob(f"certificates/*/{domain}"):
         cert = cert_dir / f"{domain}.crt"
         key = cert_dir / f"{domain}.key"
         if cert.exists() and key.exists():
             return str(cert), str(key)
     return None
+
+
+def _find_stored_cert_paths(domain: str) -> Optional[tuple[str, str]]:
+    base = CERTS_DIR / domain
+    fullchain = base / "fullchain.pem"
+    key = base / "key.pem"
+    if fullchain.exists() and key.exists():
+        return str(fullchain), str(key)
+    return None
+
+
+def get_cert_paths() -> Optional[tuple[str, str]]:
+    s = get_settings()
+    domain = s.get("domain")
+
+    if s.get("cert_path") and s.get("key_path"):
+        cp, kp = Path(s["cert_path"]), Path(s["key_path"])
+        if cp.is_file() and kp.is_file():
+            return str(cp), str(kp)
+
+    if domain:
+        stored = _find_stored_cert_paths(domain)
+        if stored:
+            return stored
+        caddy = _find_caddy_cert_paths(domain)
+        if caddy:
+            return caddy
+
+    return None
+
+
+def find_cert_paths(domain: str) -> Optional[tuple[str, str]]:
+    """Совместимость с proxy_manager."""
+    s = get_settings()
+    if s.get("domain") == domain:
+        return get_cert_paths()
+    stored = _find_stored_cert_paths(domain)
+    if stored:
+        return stored
+    return _find_caddy_cert_paths(domain)
+
+
+def xray_hint(domain: str) -> dict:
+    s = get_settings()
+    cert, key = get_cert_paths() or (s.get("cert_path") or "/path/to/fullchain.pem", s.get("key_path") or "/path/to/key.pem")
+    return {
+        "title": "Xray уже слушает 443 — настройте проброс панели",
+        "steps": [
+            f"Сертификаты: {cert} и {key}",
+            f"Панель слушает HTTP на 127.0.0.1:{PANEL_PORT} (не занимает 443)",
+            "Добавьте fallback в TLS-inbound Xray на 443",
+        ],
+        "snippet": (
+            "{\n"
+            '  "fallbacks": [\n'
+            "    {\n"
+            '      "name": "panel",\n'
+            f'      "dest": "127.0.0.1:{PANEL_PORT}",\n'
+            '      "xver": 1\n'
+            "    }\n"
+            "  ]\n"
+            "}\n"
+            f"// Браузерный HTTPS на https://{domain} → fallback → панель\n"
+            f"// TLS-сертификаты в inbound Xray: certificateFile={cert}, keyFile={key}"
+        ),
+    }
 
 
 def _build_caddyfile(domain: str) -> str:
@@ -183,7 +314,6 @@ def start_caddy(domain: str):
     global _process
     write_caddyfile(domain)
     env = os.environ.copy()
-    env["XDG_DATA_HOME"] = str(CADDY_DATA.parent)
 
     with _proc_lock:
         if _process is not None and _process.poll() is None:
@@ -229,27 +359,104 @@ def stop_caddy():
         _process = None
 
 
-async def activate_ssl() -> dict:
-    settings = get_settings()
-    domain = settings.get("domain")
-    if not domain:
-        raise ValueError("Сначала укажите домен")
-    if settings.get("ssl_status") not in ("verified", "active", "error"):
-        raise ValueError("Сначала проверьте DNS")
+def _run_acme(args: list[str], env: Optional[dict] = None) -> subprocess.CompletedProcess:
+    if not ACME_SH.is_file():
+        raise ValueError("acme.sh не установлен в контейнере")
+    run_env = os.environ.copy()
+    if env:
+        run_env.update(env)
+    result = subprocess.run(
+        [str(ACME_SH), *args],
+        capture_output=True,
+        text=True,
+        env=run_env,
+        timeout=300,
+    )
+    if result.returncode != 0:
+        tail = (result.stderr or result.stdout or "").strip()[-600:]
+        raise ValueError(tail or "Ошибка acme.sh")
+    return result
 
+
+def _issue_cert_dns(domain: str) -> tuple[str, str]:
+    token = os.environ.get("CF_API_TOKEN", "").strip()
+    if not token:
+        raise ValueError(
+            "Для DNS-режима добавьте CF_API_TOKEN в .env (Cloudflare API Token с правом DNS:Edit)"
+        )
+
+    email = ACME_EMAIL or f"admin@{domain}"
+    domain_dir = CERTS_DIR / domain
+    domain_dir.mkdir(parents=True, exist_ok=True)
+
+    acme_env = {
+        "CF_Token": token,
+        "CF_Account_ID": os.environ.get("CF_ACCOUNT_ID", "").strip(),
+    }
+
+    _run_acme(["--set-default-ca", "--server", "letsencrypt"], acme_env)
+    _run_acme(
+        [
+            "--issue", "--dns", "dns_cf", "-d", domain,
+            "--keylength", "ec-256",
+            "--force",
+            "--accountemail", email,
+        ],
+        acme_env,
+    )
+    _run_acme(
+        [
+            "--install-cert", "-d", domain,
+            "--cert-file", str(domain_dir / "cert.pem"),
+            "--key-file", str(domain_dir / "key.pem"),
+            "--fullchain-file", str(domain_dir / "fullchain.pem"),
+            "--reloadcmd", "true",
+        ],
+        acme_env,
+    )
+
+    fullchain = domain_dir / "fullchain.pem"
+    key = domain_dir / "key.pem"
+    if not fullchain.is_file() or not key.is_file():
+        raise ValueError("Сертификат не был сохранён после выпуска")
+
+    return str(fullchain), str(key)
+
+
+def _activate_external() -> dict:
+    s = get_settings()
+    cert = validate_cert_path(s.get("cert_path") or "", "сертификату")
+    key = validate_cert_path(s.get("key_path") or "", "ключу")
+    _update_settings(
+        cert_path=cert,
+        key_path=key,
+        ssl_status="active",
+        ssl_error=None,
+        ssl_issued_at=now(),
+    )
+    return get_settings()
+
+
+async def _activate_caddy(domain: str) -> dict:
     _update_settings(ssl_status="issuing", ssl_error=None)
     start_caddy(domain)
 
     for _ in range(60):
         await asyncio.sleep(2)
-        paths = find_cert_paths(domain)
+        paths = _find_caddy_cert_paths(domain)
         if paths:
-            _update_settings(ssl_status="active", ssl_error=None, ssl_issued_at=now())
+            _update_settings(
+                cert_path=paths[0],
+                key_path=paths[1],
+                ssl_status="active",
+                ssl_error=None,
+                ssl_issued_at=now(),
+            )
             return get_settings()
         if not is_caddy_running():
             break
 
-    err = "Не удалось выпустить сертификат. Убедитесь, что порты 80 и 443 открыты и свободны."
+    err = "Caddy не смог занять 80/443. Если 443 занят Xray — используйте режим DNS или Внешний."
     with _proc_lock:
         proc = _process
     if proc and proc.stdout:
@@ -265,9 +472,49 @@ async def activate_ssl() -> dict:
     raise ValueError(err)
 
 
+async def activate_ssl() -> dict:
+    settings = get_settings()
+    domain = settings.get("domain")
+    mode = settings.get("ssl_mode", "dns")
+
+    if not domain:
+        raise ValueError("Сначала укажите домен")
+    if settings.get("ssl_status") not in ("verified", "active", "error"):
+        raise ValueError("Сначала проверьте DNS")
+
+    if mode == "caddy":
+        return await _activate_caddy(domain)
+
+    if mode == "external":
+        stop_caddy()
+        return _activate_external()
+
+    # dns — без занятия 443
+    stop_caddy()
+    _update_settings(ssl_status="issuing", ssl_error=None)
+    try:
+        cert, key = await asyncio.to_thread(_issue_cert_dns, domain)
+    except ValueError as e:
+        _update_settings(ssl_status="error", ssl_error=str(e))
+        raise
+
+    _update_settings(
+        cert_path=cert,
+        key_path=key,
+        ssl_status="active",
+        ssl_error=None,
+        ssl_issued_at=now(),
+    )
+    return get_settings()
+
+
 def ensure_caddy():
     settings = get_settings()
-    if settings.get("ssl_status") == "active" and settings.get("domain"):
+    if (
+        settings.get("ssl_mode") == "caddy"
+        and settings.get("ssl_status") == "active"
+        and settings.get("domain")
+    ):
         start_caddy(settings["domain"])
 
 
@@ -280,15 +527,28 @@ def require_https_allowed():
 
 def public_settings(fallback_ip: str) -> dict:
     s = get_settings()
+    mode = s.get("ssl_mode", "dns")
+    active = is_ssl_active()
+    hint = xray_hint(s["domain"]) if active and mode in ("dns", "external") and s.get("domain") else None
+
     return {
         "domain": s.get("domain"),
+        "ssl_mode": mode,
         "ssl_status": s.get("ssl_status") or "none",
         "ssl_error": s.get("ssl_error"),
-        "ssl_active": is_ssl_active(),
+        "ssl_active": active,
+        "cert_path": s.get("cert_path"),
+        "key_path": s.get("key_path"),
         "verified_at": s.get("verified_at"),
         "ssl_issued_at": s.get("ssl_issued_at"),
         "connection_host": get_connection_host(fallback_ip),
         "panel_url": get_panel_url(fallback_ip),
         "server_ip": fallback_ip,
-        "https_allowed": is_ssl_active(),
+        "https_allowed": active,
+        "xray_hint": hint,
+        "ssl_mode_labels": {
+            "caddy": "Caddy (нужны свободные 80/443)",
+            "dns": "DNS — Let's Encrypt (443 не нужен, Cloudflare)",
+            "external": "Внешний — сертификаты Xray/acme.sh",
+        },
     }

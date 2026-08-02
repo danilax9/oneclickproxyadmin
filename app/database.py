@@ -80,6 +80,19 @@ def init_db():
             VALUES (1, NULL, 'none', 0);
             """
         )
+        _migrate_domain_settings(cur)
+
+
+def _migrate_domain_settings(cur):
+    cols = {row[1] for row in cur.execute("PRAGMA table_info(domain_settings)")}
+    if "ssl_mode" not in cols:
+        cur.execute(
+            "ALTER TABLE domain_settings ADD COLUMN ssl_mode TEXT NOT NULL DEFAULT 'dns'"
+        )
+    if "cert_path" not in cols:
+        cur.execute("ALTER TABLE domain_settings ADD COLUMN cert_path TEXT")
+    if "key_path" not in cols:
+        cur.execute("ALTER TABLE domain_settings ADD COLUMN key_path TEXT")
 
 
 def now() -> int:

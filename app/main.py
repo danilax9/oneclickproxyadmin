@@ -88,6 +88,13 @@ async def server_info(_: bool = Depends(require_auth)):
 
 class DomainBody(BaseModel):
     domain: str = Field(min_length=1, max_length=253)
+    ssl_mode: Optional[str] = Field(default=None, pattern="^(caddy|dns|external)$")
+
+
+class DomainSslBody(BaseModel):
+    ssl_mode: str = Field(pattern="^(caddy|dns|external)$")
+    cert_path: Optional[str] = None
+    key_path: Optional[str] = None
 
 
 @app.get("/api/domain")
@@ -99,7 +106,16 @@ async def get_domain(_: bool = Depends(require_auth)):
 @app.put("/api/domain")
 def save_domain(body: DomainBody, _: bool = Depends(require_auth)):
     try:
-        domain_manager.set_domain(body.domain)
+        domain_manager.set_domain(body.domain, body.ssl_mode)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True}
+
+
+@app.patch("/api/domain/ssl")
+def save_domain_ssl(body: DomainSslBody, _: bool = Depends(require_auth)):
+    try:
+        domain_manager.set_ssl_mode(body.ssl_mode, body.cert_path, body.key_path)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True}

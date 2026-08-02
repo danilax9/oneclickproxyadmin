@@ -12,9 +12,13 @@ services:
       PANEL_PORT: ${PANEL_PORT:-8000}
       SECRET_KEY: ${SECRET_KEY:-}
       ACME_EMAIL: ${ACME_EMAIL:-}
+      CF_API_TOKEN: ${CF_API_TOKEN:-}
+      CF_ACCOUNT_ID: ${CF_ACCOUNT_ID:-}
     volumes:
       - proxy-data:/app/data
       - proxy-logs:/var/log/3proxy
+      # Раскомментируйте для режима «Внешний» — сертификаты Xray на хосте:
+      # - /etc/xray:/etc/xray:ro
 
 volumes:
   proxy-data:
