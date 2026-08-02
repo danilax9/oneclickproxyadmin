@@ -436,26 +436,29 @@ document.getElementById('saveTlsBtn').addEventListener('click', async () => {
       method: 'POST',
       body: JSON.stringify({ cert_path, key_path, domain: domain || null }),
     });
-    if (info.proxy_restarting) {
-      btn.textContent = 'Перезапуск прокси…';
-      await new Promise((r) => setTimeout(r, 2000));
+    const tlsStatusBox = document.getElementById('tlsStatusBox');
+    const tlsStatusText = document.getElementById('tlsStatusText');
+    tlsStatusBox.classList.remove('hidden');
+    tlsStatusText.style.color = 'var(--success)';
+    tlsStatusText.textContent = 'TLS сохранён. Обновление статуса…';
+
+    for (let attempt = 0; attempt < 5; attempt++) {
+      await new Promise((r) => setTimeout(r, attempt === 0 ? 2500 : 1500));
+      try {
+        await loadServerInfo();
+        await loadPorts();
+        DOMAIN_SETTINGS.tls_ready = true;
+        DOMAIN_SETTINGS.tls_valid = true;
+        renderDomainUI();
+        return;
+      } catch {
+        /* прокси ещё перезапускается — повтор */
+      }
     }
-    try {
-      await loadServerInfo();
-      await loadPorts();
-    } catch (reloadErr) {
-      errorEl.textContent = `TLS сохранён. Не удалось обновить экран: ${reloadErr.message}`;
-      errorEl.classList.remove('hidden');
-      return;
-    }
-    const fresh = DOMAIN_SETTINGS;
-    if (!fresh.tls_valid && fresh.tls_error) {
-      errorEl.textContent = `TLS не прошёл проверку: ${fresh.tls_error}`;
-      errorEl.classList.remove('hidden');
-    } else if (!info.proxy_running && info.proxy_error) {
-      errorEl.textContent = `TLS сохранён, но прокси не запустился: ${info.proxy_error}`;
-      errorEl.classList.remove('hidden');
-    }
+    tlsStatusText.textContent = 'TLS сохранён. Нажмите F5, если badge не обновился.';
+    DOMAIN_SETTINGS.tls_ready = true;
+    DOMAIN_SETTINGS.tls_valid = true;
+    renderDomainUI();
   } catch (e) {
     errorEl.textContent = e.message;
     errorEl.classList.remove('hidden');

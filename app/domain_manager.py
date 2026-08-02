@@ -14,6 +14,7 @@ import signal
 import socket
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -438,7 +439,24 @@ def validate_tls_pair(cert_path: str, key_path: str) -> tuple[bool, str]:
         return False, f"Ошибка проверки TLS: {e}"
 
 
-def tls_status() -> dict:
+_TLS_STATUS_CACHE: dict = {"data": None, "ts": 0.0}
+_TLS_STATUS_TTL = 20.0
+
+
+def invalidate_tls_cache() -> None:
+    _TLS_STATUS_CACHE["data"] = None
+    _TLS_STATUS_CACHE["ts"] = 0.0
+
+
+def tls_status(*, force: bool = False) -> dict:
+    now_ts = time.time()
+    if (
+        not force
+        and _TLS_STATUS_CACHE["data"] is not None
+        and now_ts - _TLS_STATUS_CACHE["ts"] < _TLS_STATUS_TTL
+    ):
+        return _TLS_STATUS_CACHE["data"]
+
     paths = get_tls_paths()
     if not paths:
         return {
@@ -460,7 +478,7 @@ def tls_status() -> dict:
     if valid and not chain_ok:
         err = chain_err
         valid = False
-    return {
+    result = {
         "ready": True,
         "valid": valid,
         "error": err,
@@ -472,6 +490,9 @@ def tls_status() -> dict:
         "cert_path": cert,
         "key_path": key,
     }
+    _TLS_STATUS_CACHE["data"] = result
+    _TLS_STATUS_CACHE["ts"] = now_ts
+    return result
 
 
 def get_tls_paths() -> Optional[tuple[str, str]]:
@@ -919,6 +940,7 @@ def save_tls_config(
         if auto:
             fields["domain"] = auto
     _update_settings(**fields)
+    invalidate_tls_cache()
     return get_settings()
 
 

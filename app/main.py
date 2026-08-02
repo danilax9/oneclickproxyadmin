@@ -175,7 +175,8 @@ class TlsBody(BaseModel):
 @app.get("/api/domain")
 async def get_domain(_: bool = Depends(require_auth)):
     ip = await utils.get_external_ip()
-    return domain_manager.public_settings(ip)
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, domain_manager.public_settings, ip)
 
 
 @app.put("/api/domain")
@@ -187,9 +188,10 @@ def save_domain(body: DomainBody, _: bool = Depends(require_auth)):
     return {"ok": True}
 
 
-def _restart_proxy_after_tls():
+async def _restart_proxy_after_tls():
+    loop = asyncio.get_running_loop()
     try:
-        proxy_manager.restart()
+        await loop.run_in_executor(None, proxy_manager.restart)
     except Exception:
         log.exception("proxy restart after TLS save failed")
 
