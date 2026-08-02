@@ -251,7 +251,10 @@ function renderDomainUI() {
   if (tlsReady && s.tls_valid !== false) {
     tlsStatusBox.classList.remove('hidden');
     const sans = (s.cert_sans || []).join(', ');
-    tlsStatusText.textContent = `HTTPS-прокси активны. Подключайтесь как https://user:pass@${s.domain || CONNECTION_HOST}:ПОРТ (не http).${sans ? ` SAN: ${sans}` : ''}`;
+    const chainNote = s.cert_chain_ok === false
+      ? ' ⚠ Укажите fullchain.pem (не cert.pem) — иначе клиенты не доверяют HTTPS-прокси.'
+      : (s.cert_count ? ` Chain: ${s.cert_count} серт.` : '');
+    tlsStatusText.textContent = `HTTPS-прокси активны. Подключайтесь как https://user:pass@${s.domain || CONNECTION_HOST}:ПОРТ (не http).${sans ? ` SAN: ${sans}.` : ''}${chainNote}`;
     tlsStatusText.style.color = s.cert_domain_match === false ? 'var(--warning, #b45309)' : 'var(--success)';
     if (s.cert_domain_match === false) {
       tlsStatusText.textContent += ` Домен «${s.domain}» не найден в сертификате — клиент может ругаться на TLS.`;
@@ -379,6 +382,29 @@ async function loadServerInfo() {
 }
 
 // -------------------------------------------------------------- TLS ------
+
+document.getElementById('domainInput')?.addEventListener('change', async () => {
+  const domain = document.getElementById('domainInput').value.trim();
+  if (!domain) return;
+  try {
+    const s = await api(`/api/tls/suggest?domain=${encodeURIComponent(domain)}`);
+    const certEl = document.getElementById('certPathInput');
+    const keyEl = document.getElementById('keyPathInput');
+    if (!certEl.value.trim() || certEl.value.includes('/archive/')) {
+      certEl.value = s.cert_path;
+    }
+    if (!keyEl.value.trim() || keyEl.value.includes('/archive/')) {
+      keyEl.value = s.key_path;
+    }
+    if (!s.letsencrypt_mounted) {
+      const errorEl = document.getElementById('domainError');
+      errorEl.textContent = '/etc/letsencrypt не смонтирован в контейнер — выполните ./deploy.sh';
+      errorEl.classList.remove('hidden');
+    }
+  } catch {
+    /* ignore */
+  }
+});
 
 document.getElementById('saveTlsBtn').addEventListener('click', async () => {
   const cert_path = document.getElementById('certPathInput').value.trim();

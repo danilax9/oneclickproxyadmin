@@ -126,17 +126,118 @@ def validate_ssl_mode(mode: str) -> str:
     return mode
 
 
-def validate_cert_path(path: str, label: str) -> str:
+def _latest_letsencrypt_file(directory: Path, prefix: str) -> Optional[Path]:
+    """В archive/ certbot хранит fullchain1.pem, privkey2.pem — берём последнюю версию."""
+    if not directory.is_dir():
+        return None
+    candidates = list(directory.glob(f"{prefix}*.pem"))
+    if not candidates:
+        return None
+
+    def version_of(path: Path) -> int:
+        m = re.match(rf"{re.escape(prefix)}(\d+)\.pem$", path.name)
+        return int(m.group(1)) if m else 0
+
+    return max(candidates, key=version_of)
+
+
+def _domain_from_le_path(path: str) -> Optional[str]:
+    m = re.search(r"/(?:live|archive)/([^/]+)/", path)
+    return m.group(1) if m else None
+
+
+def resolve_letsencrypt_path(path: str, file_kind: str) -> Optional[str]:
+    """
+    Находит cert/key внутри контейнера.
+    file_kind: 'fullchain' | 'privkey'
+    """
+    raw = path.strip()
+    p = Path(raw)
+
+    if p.is_file() and os.access(p, os.R_OK):
+        return raw
+
+    # Symlink из live/ (Path.is_file()=true для symlink на файл)
+    try:
+        if p.is_symlink() and p.resolve().is_file() and os.access(p, os.R_OK):
+            return raw
+    except OSError:
+        pass
+
+    domain = _domain_from_le_path(raw)
+    parent = p.parent
+
+    if file_kind == "fullchain":
+        for name in ("fullchain.pem",):
+            candidate = parent / name
+            if candidate.is_file():
+                return str(candidate)
+        latest = _latest_letsencrypt_file(parent, "fullchain")
+        if latest:
+            return str(latest)
+        # certN + chainN
+        cert_latest = _latest_letsencrypt_file(parent, "cert")
+        if cert_latest:
+            ver = re.match(r"cert(\d+)\.pem$", cert_latest.name)
+            if ver:
+                chain = parent / f"chain{ver.group(1)}.pem"
+                if chain.is_file():
+                    return str(cert_latest)  # build_fullchain соберёт с chain
+
+    if file_kind == "privkey":
+        for name in ("privkey.pem",):
+            candidate = parent / name
+            if candidate.is_file():
+                return str(candidate)
+        latest = _latest_letsencrypt_file(parent, "privkey")
+        if latest:
+            return str(latest)
+
+    # archive/... -> live/.../fullchain.pem
+    if domain:
+        live_dir = Path(f"/etc/letsencrypt/live/{domain}")
+        live_name = "fullchain.pem" if file_kind == "fullchain" else "privkey.pem"
+        live_path = live_dir / live_name
+        if live_path.is_file() and os.access(live_path, os.R_OK):
+            return str(live_path)
+
+    return None
+
+
+def validate_cert_path(path: str, label: str, *, kind: Optional[str] = None) -> str:
     path = path.strip()
     if not path:
         raise ValueError(f"Укажите путь к {label}")
-    p = Path(path)
-    if not p.is_file():
-        raise ValueError(f"Файл не найден: {path}")
-    if not os.access(p, os.R_OK):
-        raise ValueError(f"Нет доступа на чтение: {path}")
-    # Не resolve(): Let's Encrypt live/*.pem — симлинки, resolve() «замораживает» archive-путь.
-    return path
+
+    lower = label.lower()
+    if kind is None:
+        if "key" in lower or "privkey" in path:
+            kind = "privkey"
+        else:
+            kind = "fullchain"
+
+    resolved = resolve_letsencrypt_path(path, kind)
+    if not resolved:
+        hints = []
+        domain = _domain_from_le_path(path)
+        if "/archive/" in path:
+            hints.append(
+                "в archive/ нет fullchain.pem — только fullchain1.pem; "
+                "используйте live/: /etc/letsencrypt/live/ДОМЕН/fullchain.pem"
+            )
+        if domain:
+            hints.append(
+                f"ожидаемый путь: /etc/letsencrypt/live/{domain}/"
+                f"{'fullchain.pem' if kind == 'fullchain' else 'privkey.pem'}"
+            )
+        if not Path("/etc/letsencrypt").exists():
+            hints.append("смонтируйте -v /etc/letsencrypt:/etc/letsencrypt:ro и ./deploy.sh")
+        hint = " ".join(hints)
+        raise ValueError(f"Файл не найден в контейнере: {path}. {hint}".strip())
+
+    if not os.access(resolved, os.R_OK):
+        raise ValueError(f"Нет доступа на чтение: {resolved}")
+    return resolved
 
 
 def set_domain(domain: str, ssl_mode: Optional[str] = None) -> dict:
@@ -246,6 +347,47 @@ def _find_stored_cert_paths(domain: str) -> Optional[tuple[str, str]]:
     return None
 
 
+def count_pem_certs(cert_path: str) -> int:
+    try:
+        return Path(cert_path).read_text(encoding="utf-8", errors="replace").count("-----BEGIN CERTIFICATE-----")
+    except OSError:
+        return 0
+
+
+def build_fullchain_pem(cert_path: str) -> tuple[str, int]:
+    """Собирает fullchain: предпочитает fullchain.pem, иначе cert.pem + chain.pem."""
+    p = Path(cert_path)
+    fullchain_path = p.parent / "fullchain.pem"
+    if p.name != "fullchain.pem" and fullchain_path.is_file():
+        text = fullchain_path.read_text(encoding="utf-8", errors="replace")
+        return text.strip() + "\n", text.count("-----BEGIN CERTIFICATE-----")
+
+    text = p.read_text(encoding="utf-8", errors="replace").strip()
+    n = text.count("-----BEGIN CERTIFICATE-----")
+    if n >= 2:
+        return text + "\n", n
+
+    chain_path = p.parent / "chain.pem"
+    if not chain_path.is_file():
+        m = re.match(r"(?:cert|fullchain)(\d+)\.pem$", p.name)
+        if m:
+            chain_path = p.parent / f"chain{m.group(1)}.pem"
+    if chain_path.is_file():
+        combined = text + "\n" + chain_path.read_text(encoding="utf-8", errors="replace").strip() + "\n"
+        return combined, combined.count("-----BEGIN CERTIFICATE-----")
+
+    return text + "\n", n
+
+
+def verify_cert_chain_file(cert_path: str) -> tuple[bool, str]:
+    count = count_pem_certs(cert_path)
+    if count >= 2:
+        return True, ""
+    if count == 1:
+        return False, "В сертификате только leaf — нужен fullchain.pem (cert + intermediate CA)"
+    return False, "Файл сертификата пуст или повреждён"
+
+
 def get_cert_sans(cert_path: str) -> list[str]:
     try:
         out = subprocess.run(
@@ -307,6 +449,7 @@ def tls_status() -> dict:
         }
     cert, key = paths
     valid, err = validate_tls_pair(cert, key)
+    chain_ok, chain_err = verify_cert_chain_file(cert)
     sans = get_cert_sans(cert)
     domain = get_settings().get("domain")
     domain_ok = True
@@ -314,10 +457,16 @@ def tls_status() -> dict:
         domain_ok = domain in sans or any(
             san.startswith("*.") and domain.endswith(san[1:]) for san in sans
         )
+    if valid and not chain_ok:
+        err = chain_err
+        valid = False
     return {
         "ready": True,
         "valid": valid,
         "error": err,
+        "chain_ok": chain_ok,
+        "chain_error": chain_err,
+        "cert_count": count_pem_certs(cert),
         "sans": sans,
         "domain_match": domain_ok,
         "cert_path": cert,
@@ -710,16 +859,37 @@ def ensure_caddy():
 
 
 def materialize_tls_files(cert_path: str, key_path: str) -> tuple[str, str]:
-    """Копирует cert/key в volume — 3proxy надёжнее читает обычные файлы, не symlinks."""
+    """Копирует cert/key в volume — fullchain с промежуточными CA для HTTPS-прокси."""
     dest_dir = CERTS_DIR / "proxy"
     dest_dir.mkdir(parents=True, exist_ok=True)
     cert_dest = dest_dir / "fullchain.pem"
     key_dest = dest_dir / "privkey.pem"
-    shutil.copy2(cert_path, cert_dest)
+    fullchain_text, cert_count = build_fullchain_pem(cert_path)
+    if cert_count < 2:
+        raise ValueError(
+            "Нужен fullchain.pem (сертификат + chain). "
+            "Укажите /etc/letsencrypt/live/ДОМЕН/fullchain.pem — не cert.pem"
+        )
+    cert_dest.write_text(fullchain_text, encoding="utf-8")
     shutil.copy2(key_path, key_dest)
     os.chmod(cert_dest, 0o644)
     os.chmod(key_dest, 0o600)
     return str(cert_dest), str(key_dest)
+
+
+def default_letsencrypt_paths(domain: str) -> dict:
+    domain = domain.strip().lower().rstrip(".")
+    live = Path(f"/etc/letsencrypt/live/{domain}")
+    cert = live / "fullchain.pem"
+    key = live / "privkey.pem"
+    mounted = Path("/etc/letsencrypt").exists()
+    return {
+        "cert_path": str(cert),
+        "key_path": str(key),
+        "cert_exists": cert.is_file(),
+        "key_exists": key.is_file(),
+        "letsencrypt_mounted": mounted,
+    }
 
 
 def save_tls_config(
@@ -728,8 +898,8 @@ def save_tls_config(
     domain: Optional[str] = None,
 ) -> dict:
     """Сохранить tls-cert / tls-key — сразу включает HTTPS-прокси порты."""
-    cert = validate_cert_path(cert_path, "tls-cert")
-    key = validate_cert_path(key_path, "tls-key")
+    cert = validate_cert_path(cert_path, "tls-cert", kind="fullchain")
+    key = validate_cert_path(key_path, "tls-key", kind="privkey")
     valid, err = validate_tls_pair(cert, key)
     if not valid:
         raise ValueError(err or "Сертификат и ключ не прошли проверку")
@@ -784,6 +954,8 @@ def public_settings(fallback_ip: str) -> dict:
         "tls_error": tls["error"],
         "cert_sans": tls["sans"],
         "cert_domain_match": tls.get("domain_match", True),
+        "cert_chain_ok": tls.get("chain_ok", True),
+        "cert_count": tls.get("cert_count", 0),
         "xray_hint": hint,
         "cf_token_configured": is_cf_configured(),
         "ssl_guide": guide,

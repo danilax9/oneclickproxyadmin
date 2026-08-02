@@ -140,7 +140,7 @@
             </div>
 
             <div class="form-group">
-              <label class="form-label" for="certPathInput">tls-cert (fullchain.pem)</label>
+              <label class="form-label" for="certPathInput">tls-cert (fullchain.pem — не cert.pem!)</label>
               <input id="certPathInput" type="text" class="input" placeholder="/etc/letsencrypt/live/proxy.example.com/fullchain.pem">
             </div>
             <div class="form-group">
@@ -150,7 +150,7 @@
             <div class="form-group">
               <label class="form-label" for="domainInput">Домен (для строк подключения)</label>
               <input id="domainInput" type="text" class="input" placeholder="proxy.example.com">
-              <p class="form-hint">Можно оставить пустым — возьмётся из пути Let's Encrypt</p>
+              <p class="form-hint">Путь <strong>live/</strong>, не archive/ — там файлы fullchain<strong>1</strong>.pem. Пример ниже подставится по домену.</p>
             </div>
 
             <div class="domain-actions" style="margin-bottom:20px">

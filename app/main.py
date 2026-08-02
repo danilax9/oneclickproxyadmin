@@ -124,6 +124,15 @@ async def proxy_test_https(_: bool = Depends(require_auth)):
     return proxy_manager.test_https_proxy(host, port, candidate["username"], candidate["password"])
 
 
+@app.get("/api/tls/suggest")
+async def tls_suggest(domain: str, _: bool = Depends(require_auth)):
+    try:
+        d = domain_manager.validate_domain(domain)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return domain_manager.default_letsencrypt_paths(d)
+
+
 # ----------------------------------------------------------------- Domain --
 
 class DomainBody(BaseModel):
