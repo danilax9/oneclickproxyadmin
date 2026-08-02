@@ -150,7 +150,19 @@ async def tls_suggest(domain: str, _: bool = Depends(require_auth)):
         d = domain_manager.validate_domain(domain)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return domain_manager.default_letsencrypt_paths(d)
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, domain_manager.discover_tls_certificates, d)
+
+
+@app.get("/api/tls/discover")
+async def tls_discover(domain: str, _: bool = Depends(require_auth)):
+    """Автопоиск сертификатов по домену (алиас suggest)."""
+    try:
+        d = domain_manager.validate_domain(domain)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(None, domain_manager.discover_tls_certificates, d)
 
 
 # ----------------------------------------------------------------- Domain --

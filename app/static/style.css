@@ -898,6 +898,18 @@ table.data-table tbody tr:hover td {
   gap: 8px;
 }
 
+.domain-input-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.domain-input-row .input {
+  flex: 1;
+  min-width: 200px;
+}
+
 .squid-example {
   margin-bottom: 20px;
   padding: 12px 14px;

@@ -918,12 +918,228 @@ def default_letsencrypt_paths(domain: str) -> dict:
     }
 
 
+_TLS_SOURCE_LABELS = {
+    "letsencrypt_live": "Let's Encrypt (live)",
+    "letsencrypt_archive": "Let's Encrypt (archive)",
+    "letsencrypt_scan": "Let's Encrypt (SAN совпал)",
+    "caddy": "Caddy",
+    "acme_sh": "acme.sh",
+    "materialized": "Volume панели",
+}
+
+
+def _cert_matches_domain(cert_path: str, domain: str) -> bool:
+    sans = get_cert_sans(cert_path)
+    if not sans:
+        return _domain_from_le_path(cert_path) == domain
+    return domain in sans or any(
+        san.startswith("*.") and domain.endswith(san[1:]) for san in sans
+    )
+
+
+def _try_tls_candidate(
+    candidates: list[dict],
+    *,
+    source: str,
+    cert_path: Path | str,
+    key_path: Path | str,
+    domain: str,
+) -> None:
+    cp, kp = Path(cert_path), Path(key_path)
+    if not cp.is_file() or not kp.is_file():
+        return
+    if not os.access(cp, os.R_OK) or not os.access(kp, os.R_OK):
+        return
+    cert_s = str(cp)
+    key_s = str(kp)
+    for existing in candidates:
+        if existing["cert_path"] == cert_s and existing["key_path"] == key_s:
+            return
+    valid, err = validate_tls_pair(cert_s, key_s)
+    count = count_pem_certs(cert_s)
+    chain_ok, chain_err = verify_cert_chain_file(cert_s)
+    if valid and not chain_ok:
+        valid = False
+        err = chain_err or err
+    domain_match = _cert_matches_domain(cert_s, domain)
+    candidates.append(
+        {
+            "source": source,
+            "source_label": _TLS_SOURCE_LABELS.get(source, source),
+            "cert_path": cert_s,
+            "key_path": key_s,
+            "valid": valid,
+            "error": err,
+            "cert_count": count,
+            "sans": get_cert_sans(cert_s),
+            "domain_match": domain_match,
+        }
+    )
+
+
+def discover_tls_certificates(domain: str) -> dict:
+    """Автопоиск tls-cert / tls-key по домену в типичных каталогах."""
+    domain = validate_domain(domain.strip().lower().rstrip("."))
+    candidates: list[dict] = []
+    mounted = Path("/etc/letsencrypt").exists()
+
+    live = Path(f"/etc/letsencrypt/live/{domain}")
+    _try_tls_candidate(
+        candidates,
+        source="letsencrypt_live",
+        cert_path=live / "fullchain.pem",
+        key_path=live / "privkey.pem",
+        domain=domain,
+    )
+
+    archive = Path(f"/etc/letsencrypt/archive/{domain}")
+    fc = _latest_letsencrypt_file(archive, "fullchain")
+    pk = _latest_letsencrypt_file(archive, "privkey")
+    if fc and pk:
+        _try_tls_candidate(
+            candidates,
+            source="letsencrypt_archive",
+            cert_path=fc,
+            key_path=pk,
+            domain=domain,
+        )
+
+    caddy = _find_caddy_cert_paths(domain)
+    if caddy:
+        _try_tls_candidate(
+            candidates,
+            source="caddy",
+            cert_path=caddy[0],
+            key_path=caddy[1],
+            domain=domain,
+        )
+
+    acme_home = ACME_SH.parent
+    acme_dir = acme_home / domain
+    for cert_name in ("fullchain.cer", "fullchain.pem", f"{domain}.cer"):
+        for key_name in (f"{domain}.key", "privkey.pem"):
+            _try_tls_candidate(
+                candidates,
+                source="acme_sh",
+                cert_path=acme_dir / cert_name,
+                key_path=acme_dir / key_name,
+                domain=domain,
+            )
+
+    le_root = Path("/etc/letsencrypt/live")
+    if le_root.is_dir():
+        for entry in sorted(le_root.iterdir()):
+            if not entry.is_dir() or entry.name == domain:
+                continue
+            cert = entry / "fullchain.pem"
+            key = entry / "privkey.pem"
+            if not cert.is_file() or not key.is_file():
+                continue
+            if _cert_matches_domain(str(cert), domain):
+                _try_tls_candidate(
+                    candidates,
+                    source="letsencrypt_scan",
+                    cert_path=cert,
+                    key_path=key,
+                    domain=domain,
+                )
+
+    if get_settings().get("domain") == domain:
+        _try_tls_candidate(
+            candidates,
+            source="materialized",
+            cert_path=CERTS_DIR / "proxy" / "fullchain.pem",
+            key_path=CERTS_DIR / "proxy" / "privkey.pem",
+            domain=domain,
+        )
+
+    source_rank = {
+        "letsencrypt_live": 0,
+        "letsencrypt_archive": 1,
+        "caddy": 2,
+        "acme_sh": 3,
+        "letsencrypt_scan": 4,
+        "materialized": 5,
+    }
+    candidates.sort(
+        key=lambda c: (
+            0 if c.get("domain_match") else 1,
+            0 if c.get("valid") else 1,
+            source_rank.get(c["source"], 99),
+        )
+    )
+
+    best = candidates[0] if candidates else None
+    if best:
+        return {
+            "found": True,
+            "domain": domain,
+            "cert_path": best["cert_path"],
+            "key_path": best["key_path"],
+            "source": best["source"],
+            "source_label": best["source_label"],
+            "cert_exists": True,
+            "key_exists": True,
+            "valid": best["valid"],
+            "error": best.get("error") or "",
+            "cert_count": best["cert_count"],
+            "sans": best["sans"],
+            "domain_match": best.get("domain_match", True),
+            "letsencrypt_mounted": mounted,
+            "candidates": candidates,
+        }
+
+    expected = default_letsencrypt_paths(domain)
+    return {
+        "found": False,
+        "domain": domain,
+        "cert_path": expected["cert_path"],
+        "key_path": expected["key_path"],
+        "cert_exists": expected["cert_exists"],
+        "key_exists": expected["key_exists"],
+        "valid": False,
+        "error": "Сертификаты не найдены",
+        "source": None,
+        "source_label": None,
+        "cert_count": 0,
+        "sans": [],
+        "domain_match": False,
+        "letsencrypt_mounted": mounted,
+        "candidates": [],
+    }
+
+
+def resolve_tls_inputs(
+    cert_path: str,
+    key_path: str,
+    domain: Optional[str],
+) -> tuple[str, str, Optional[str]]:
+    """Подставляет найденные по домену пути, если поля пустые или указывают на volume."""
+    cert_path = cert_path.strip()
+    key_path = key_path.strip()
+    d = (domain or "").strip().lower().rstrip(".")
+    if not d:
+        d = _hostname_from_cert_path(cert_path) or ""
+    materialized = (
+        cert_path.startswith(str(CERTS_DIR))
+        or key_path.startswith(str(CERTS_DIR))
+    )
+    if d and (not cert_path or not key_path or materialized):
+        disc = discover_tls_certificates(d)
+        if disc.get("found") and disc.get("valid"):
+            return disc["cert_path"], disc["key_path"], d
+        if disc.get("found") and not cert_path:
+            return disc["cert_path"], disc["key_path"], d
+    return cert_path, key_path, domain
+
+
 def save_tls_config(
     cert_path: str,
     key_path: str,
     domain: Optional[str] = None,
 ) -> dict:
     """Сохранить tls-cert / tls-key — сразу включает HTTPS-прокси порты."""
+    cert_path, key_path, domain = resolve_tls_inputs(cert_path, key_path, domain)
     cert = validate_cert_path(cert_path, "tls-cert", kind="fullchain")
     key = validate_cert_path(key_path, "tls-key", kind="privkey")
     valid, err = validate_tls_pair(cert, key)

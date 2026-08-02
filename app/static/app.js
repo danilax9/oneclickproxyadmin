@@ -338,6 +338,10 @@ function renderDomainUI() {
 
   syncHttpsPortOption();
   updateStats();
+
+  if (s.domain && shouldAutofillTlsPaths(s.cert_path || '', s.key_path || '')) {
+    discoverTlsFromDomain({ silent: true });
+  }
 }
 
 function applyDomainSettings(info) {
@@ -398,27 +402,96 @@ async function loadServerInfo() {
 
 // -------------------------------------------------------------- TLS ------
 
-document.getElementById('domainInput')?.addEventListener('change', async () => {
-  const domain = document.getElementById('domainInput').value.trim();
-  if (!domain) return;
-  try {
-    const s = await api(`/api/tls/suggest?domain=${encodeURIComponent(domain)}`);
-    const certEl = document.getElementById('certPathInput');
-    const keyEl = document.getElementById('keyPathInput');
-    if (!certEl.value.trim() || certEl.value.includes('/archive/')) {
-      certEl.value = s.cert_path;
-    }
-    if (!keyEl.value.trim() || keyEl.value.includes('/archive/')) {
-      keyEl.value = s.key_path;
-    }
-    if (!s.letsencrypt_mounted) {
-      const errorEl = document.getElementById('domainError');
-      errorEl.textContent = '/etc/letsencrypt не смонтирован в контейнер — выполните ./deploy.sh';
+let tlsDiscoverTimer = null;
+
+function shouldAutofillTlsPaths(certVal, keyVal) {
+  const materialized = (p) => p.includes('/app/data/certs/');
+  return (
+    !certVal.trim()
+    || !keyVal.trim()
+    || certVal.includes('/archive/')
+    || keyVal.includes('/archive/')
+    || materialized(certVal)
+    || materialized(keyVal)
+  );
+}
+
+async function discoverTlsFromDomain({ force = false, silent = false } = {}) {
+  const domain = document.getElementById('domainInput')?.value.trim();
+  const errorEl = document.getElementById('domainError');
+  const hintEl = document.getElementById('tlsDiscoverHint');
+  const btn = document.getElementById('discoverTlsBtn');
+  if (!domain) {
+    if (!silent) {
+      errorEl.textContent = 'Укажите домен для поиска сертификатов';
       errorEl.classList.remove('hidden');
     }
-  } catch {
-    /* ignore */
+    return null;
   }
+  const certEl = document.getElementById('certPathInput');
+  const keyEl = document.getElementById('keyPathInput');
+  const prevBtnText = btn?.textContent;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Поиск…';
+  }
+  if (!silent) errorEl.classList.add('hidden');
+  try {
+    const s = await api(`/api/tls/discover?domain=${encodeURIComponent(domain)}`);
+    if (force || shouldAutofillTlsPaths(certEl.value, keyEl.value)) {
+      certEl.value = s.cert_path;
+      keyEl.value = s.key_path;
+    }
+    if (hintEl) {
+      if (s.found && s.valid) {
+        hintEl.textContent = `Найдено: ${s.source_label || s.source} (${s.cert_count} серт. в цепочке).`;
+        hintEl.style.color = 'var(--success)';
+      } else if (s.found) {
+        hintEl.textContent = `Найдено (${s.source_label}), но проверка не прошла: ${s.error || 'ошибка'}.`;
+        hintEl.style.color = 'var(--danger)';
+      } else if (!s.letsencrypt_mounted) {
+        hintEl.textContent = '/etc/letsencrypt не смонтирован — выполните ./deploy.sh';
+        hintEl.style.color = 'var(--danger)';
+      } else {
+        hintEl.textContent = `Не найдено для «${domain}». Ожидается: ${s.cert_path}`;
+        hintEl.style.color = 'var(--text-secondary)';
+      }
+    }
+    if (!s.letsencrypt_mounted && s.found === false) {
+      errorEl.textContent = '/etc/letsencrypt не смонтирован в контейнер — выполните ./deploy.sh';
+      errorEl.classList.remove('hidden');
+    } else if (!silent && s.found && !s.valid) {
+      errorEl.textContent = s.error || 'Сертификат найден, но не прошёл проверку';
+      errorEl.classList.remove('hidden');
+    }
+    return s;
+  } catch (e) {
+    if (!silent) {
+      errorEl.textContent = e.message;
+      errorEl.classList.remove('hidden');
+    }
+    return null;
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = prevBtnText || 'Найти сертификаты';
+    }
+  }
+}
+
+document.getElementById('discoverTlsBtn')?.addEventListener('click', () => {
+  discoverTlsFromDomain({ force: true });
+});
+
+document.getElementById('domainInput')?.addEventListener('input', () => {
+  clearTimeout(tlsDiscoverTimer);
+  tlsDiscoverTimer = setTimeout(() => {
+    discoverTlsFromDomain({ silent: true });
+  }, 600);
+});
+
+document.getElementById('domainInput')?.addEventListener('change', () => {
+  discoverTlsFromDomain({ silent: true });
 });
 
 document.getElementById('saveTlsBtn').addEventListener('click', async () => {
