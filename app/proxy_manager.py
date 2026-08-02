@@ -218,8 +218,7 @@ def _build_config_text() -> str:
 
     if use_ssl_plugin:
         lines.append(f"plugin {SSL_PLUGIN_PATH} ssl_plugin")
-        lines.append(f"ssl_server_cert {cert_paths[0]}")
-        lines.append(f"ssl_server_key {cert_paths[1]}")
+        lines.append("stacksize 65536")
         lines.append("")
 
     all_usernames = [u["username"] for u in users]
@@ -276,7 +275,11 @@ def _build_config_text() -> str:
             _emit_port(p, ["deny *"], listen=False)
             continue
         lines.append(f"# tls-cert={cert_paths[0]} tls-key={cert_paths[1]}")
-        _emit_port(p, ["ssl_serv"])
+        _emit_port(p, [
+            f"ssl_server_cert {cert_paths[0]}",
+            f"ssl_server_key {cert_paths[1]}",
+            "ssl_serv",
+        ])
 
     return "\n".join(lines) + "\n"
 
@@ -395,3 +398,55 @@ def stop():
                 _process.kill()
         _process = None
     _kill_stale_3proxy()
+
+
+def test_https_proxy(host: str, port: int, username: str, password: str) -> dict:
+    """Проверка TLS и HTTPS-прокси с сервера (openssl + curl)."""
+    host = host.strip()
+    results: dict = {"host": host, "port": port, "tls_ok": False, "proxy_ok": False, "details": []}
+
+    try:
+        tls = subprocess.run(
+            [
+                "openssl", "s_client",
+                "-connect", f"{host}:{port}",
+                "-servername", host,
+                "-brief",
+            ],
+            input=b"",
+            capture_output=True,
+            timeout=15,
+        )
+        tls_out = (tls.stdout + tls.stderr).decode("utf-8", errors="replace")
+        results["tls_output"] = tls_out[-2000:]
+        results["tls_ok"] = tls.returncode == 0 and "CONNECTION ESTABLISHED" in tls_out
+        results["details"].append("TLS: OK" if results["tls_ok"] else f"TLS: ошибка (code {tls.returncode})")
+    except Exception as e:
+        results["tls_output"] = str(e)
+        results["details"].append(f"TLS: {e}")
+
+    proxy_url = f"https://{username}:{password}@{host}:{port}"
+    try:
+        curl = subprocess.run(
+            [
+                "curl", "-sS", "-m", "20",
+                "-x", proxy_url,
+                "https://ifconfig.me",
+            ],
+            capture_output=True,
+            timeout=25,
+        )
+        body = curl.stdout.decode("utf-8", errors="replace").strip()
+        err = curl.stderr.decode("utf-8", errors="replace").strip()
+        results["curl_output"] = body or err
+        results["proxy_ok"] = curl.returncode == 0 and bool(body)
+        results["details"].append(
+            f"Прокси: OK ({body})" if results["proxy_ok"] else f"Прокси: ошибка ({err or curl.returncode})"
+        )
+    except Exception as e:
+        results["curl_output"] = str(e)
+        results["details"].append(f"Прокси: {e}")
+
+    results["ok"] = results["tls_ok"] and results["proxy_ok"]
+    results["curl_example"] = f'curl -x "{proxy_url}" https://ifconfig.me'
+    return results

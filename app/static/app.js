@@ -403,6 +403,32 @@ document.getElementById('saveTlsBtn').addEventListener('click', async () => {
   }
 });
 
+document.getElementById('testHttpsBtn')?.addEventListener('click', async () => {
+  const errorEl = document.getElementById('domainError');
+  const tlsStatusBox = document.getElementById('tlsStatusBox');
+  const tlsStatusText = document.getElementById('tlsStatusText');
+  const btn = document.getElementById('testHttpsBtn');
+  errorEl.classList.add('hidden');
+  btn.disabled = true;
+  btn.textContent = 'Проверка…';
+  try {
+    const r = await api('/api/proxy/test-https', { method: 'POST' });
+    tlsStatusBox.classList.remove('hidden');
+    tlsStatusText.style.color = r.ok ? 'var(--success)' : 'var(--danger)';
+    tlsStatusText.textContent = [
+      r.ok ? 'HTTPS-прокси работает с сервера.' : 'HTTPS-прокси не прошёл проверку с сервера.',
+      r.details?.join(' · '),
+      r.curl_example ? `Пример: ${r.curl_example}` : '',
+    ].filter(Boolean).join(' ');
+  } catch (e) {
+    errorEl.textContent = e.message;
+    errorEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Проверить HTTPS-прокси';
+  }
+});
+
 document.getElementById('sslModeInput').addEventListener('change', async () => {
   const mode = document.getElementById('sslModeInput').value;
   try {

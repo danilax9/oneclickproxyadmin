@@ -100,6 +100,30 @@ async def proxy_restart(_: bool = Depends(require_auth)):
     }
 
 
+@app.post("/api/proxy/test-https")
+async def proxy_test_https(_: bool = Depends(require_auth)):
+    ip = await utils.get_external_ip()
+    host = domain_manager.get_connection_host(ip)
+    ports = [p for p in proxy_manager.list_ports() if p["type"] == "https"]
+    if not ports:
+        raise HTTPException(status_code=400, detail="Нет HTTPS-портов")
+    port = ports[0]["port"]
+    users = proxy_manager.list_users()
+    candidate = None
+    port_id = ports[0]["id"]
+    for u in users:
+        if u.get("blocked"):
+            continue
+        if any(p["id"] == port_id for p in u.get("ports") or []):
+            candidate = u
+            break
+    if not candidate and users:
+        candidate = next((u for u in users if not u.get("blocked")), None)
+    if not candidate:
+        raise HTTPException(status_code=400, detail="Нет пользователя для теста")
+    return proxy_manager.test_https_proxy(host, port, candidate["username"], candidate["password"])
+
+
 # ----------------------------------------------------------------- Domain --
 
 class DomainBody(BaseModel):

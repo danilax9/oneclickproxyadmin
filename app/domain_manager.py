@@ -9,6 +9,7 @@
 import asyncio
 import os
 import re
+import shutil
 import signal
 import socket
 import subprocess
@@ -708,6 +709,19 @@ def ensure_caddy():
         start_caddy(settings["domain"])
 
 
+def materialize_tls_files(cert_path: str, key_path: str) -> tuple[str, str]:
+    """Копирует cert/key в volume — 3proxy надёжнее читает обычные файлы, не symlinks."""
+    dest_dir = CERTS_DIR / "proxy"
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    cert_dest = dest_dir / "fullchain.pem"
+    key_dest = dest_dir / "privkey.pem"
+    shutil.copy2(cert_path, cert_dest)
+    shutil.copy2(key_path, key_dest)
+    os.chmod(cert_dest, 0o644)
+    os.chmod(key_dest, 0o600)
+    return str(cert_dest), str(key_dest)
+
+
 def save_tls_config(
     cert_path: str,
     key_path: str,
@@ -716,7 +730,11 @@ def save_tls_config(
     """Сохранить tls-cert / tls-key — сразу включает HTTPS-прокси порты."""
     cert = validate_cert_path(cert_path, "tls-cert")
     key = validate_cert_path(key_path, "tls-key")
-    fields: dict = {"cert_path": cert, "key_path": key, "ssl_error": None}
+    valid, err = validate_tls_pair(cert, key)
+    if not valid:
+        raise ValueError(err or "Сертификат и ключ не прошли проверку")
+    mat_cert, mat_key = materialize_tls_files(cert, key)
+    fields: dict = {"cert_path": mat_cert, "key_path": mat_key, "ssl_error": None}
     if domain is not None:
         d = domain.strip().lower().rstrip(".")
         if d:
