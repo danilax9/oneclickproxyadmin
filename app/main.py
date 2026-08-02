@@ -127,7 +127,11 @@ async def save_tls(body: TlsBody, _: bool = Depends(require_auth)):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     ip = await utils.get_external_ip()
-    return domain_manager.public_settings(ip)
+    return {
+        **domain_manager.public_settings(ip),
+        "proxy_running": proxy_manager.is_running(),
+        "proxy_error": proxy_manager.last_error(),
+    }
 
 
 @app.patch("/api/domain/ssl")
