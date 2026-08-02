@@ -14,18 +14,21 @@ const COPY_BTN_HTML = `
 const copyResetTimers = new WeakMap();
 
 async function api(path, options = {}) {
+  const timeoutMs = options.timeoutMs ?? 60000;
+  const { timeoutMs: _drop, ...fetchOptions } = options;
   let resp;
   try {
     resp = await fetch(path, {
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json' },
-      ...options,
+      signal: AbortSignal.timeout(timeoutMs),
+      ...fetchOptions,
     });
   } catch (err) {
-    const hint = err?.name === 'AbortError'
-      ? 'Таймаут запроса — попробуйте ещё раз или проверьте docker logs proxy-panel'
-      : 'Сервер недоступен. Проверьте: curl -s http://127.0.0.1:8000/api/health';
-    throw new Error(hint);
+    const msg = err?.name === 'TimeoutError'
+      ? 'Таймаут запроса — сервер занят (проверка HTTPS?). Подождите и повторите.'
+      : (err?.message || 'Сетевая ошибка');
+    throw new Error(`${msg}. Если curl на сервере работает — откройте http://IP:8000 или обновите ./deploy.sh`);
   }
   if (resp.status === 401) {
     window.location.href = '/login';
@@ -430,15 +433,21 @@ document.getElementById('saveTlsBtn').addEventListener('click', async () => {
   btn.textContent = 'Сохранение…';
   try {
     const info = await api('/api/tls', {
-      method: 'PUT',
+      method: 'POST',
       body: JSON.stringify({ cert_path, key_path, domain: domain || null }),
     });
     if (info.proxy_restarting) {
       btn.textContent = 'Перезапуск прокси…';
       await new Promise((r) => setTimeout(r, 2000));
     }
-    await loadServerInfo();
-    await loadPorts();
+    try {
+      await loadServerInfo();
+      await loadPorts();
+    } catch (reloadErr) {
+      errorEl.textContent = `TLS сохранён. Не удалось обновить экран: ${reloadErr.message}`;
+      errorEl.classList.remove('hidden');
+      return;
+    }
     const fresh = DOMAIN_SETTINGS;
     if (!fresh.tls_valid && fresh.tls_error) {
       errorEl.textContent = `TLS не прошёл проверку: ${fresh.tls_error}`;
@@ -465,7 +474,7 @@ document.getElementById('testHttpsBtn')?.addEventListener('click', async () => {
   btn.disabled = true;
   btn.textContent = 'Проверка…';
   try {
-    const r = await api('/api/proxy/test-https', { method: 'POST' });
+    const r = await api('/api/proxy/test-https', { method: 'POST', timeoutMs: 90000 });
     tlsStatusBox.classList.remove('hidden');
     tlsStatusText.style.color = r.ok ? 'var(--success)' : 'var(--danger)';
     tlsStatusText.textContent = [
@@ -498,7 +507,7 @@ async function saveTlsPathsForPanel() {
   const key_path = document.getElementById('keyPathInput').value.trim();
   const domain = document.getElementById('domainInput').value.trim();
   await api('/api/tls', {
-    method: 'PUT',
+    method: 'POST',
     body: JSON.stringify({ cert_path, key_path, domain: domain || null }),
   });
 }

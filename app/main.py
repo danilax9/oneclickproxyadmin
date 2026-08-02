@@ -79,7 +79,8 @@ def me(_: bool = Depends(require_auth)):
 @app.get("/api/server-info")
 async def server_info(_: bool = Depends(require_auth)):
     ip = await utils.get_external_ip()
-    domain = domain_manager.public_settings(ip)
+    loop = asyncio.get_running_loop()
+    domain = await loop.run_in_executor(None, domain_manager.public_settings, ip)
     return {
         "ip": ip,
         "proxy_running": proxy_manager.is_running(),
@@ -96,7 +97,8 @@ async def proxy_diagnostics(_: bool = Depends(require_auth)):
 
 @app.post("/api/proxy/restart")
 async def proxy_restart(_: bool = Depends(require_auth)):
-    proxy_manager.restart()
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, proxy_manager.restart)
     return {
         "ok": True,
         "proxy_running": proxy_manager.is_running(),
@@ -125,7 +127,21 @@ async def proxy_test_https(_: bool = Depends(require_auth)):
         candidate = next((u for u in users if not u.get("blocked")), None)
     if not candidate:
         raise HTTPException(status_code=400, detail="Нет пользователя для теста")
-    return proxy_manager.test_https_proxy(host, port, candidate["username"], candidate["password"])
+    loop = asyncio.get_running_loop()
+    try:
+        return await asyncio.wait_for(
+            loop.run_in_executor(
+                None,
+                proxy_manager.test_https_proxy,
+                host,
+                port,
+                candidate["username"],
+                candidate["password"],
+            ),
+            timeout=60.0,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Таймаут проверки HTTPS-прокси")
 
 
 @app.get("/api/tls/suggest")
@@ -223,6 +239,7 @@ async def validate_tls(body: TlsBody, _: bool = Depends(require_auth)):
 
 
 @app.put("/api/tls")
+@app.post("/api/tls")
 async def save_tls(
     body: TlsBody,
     background_tasks: BackgroundTasks,
@@ -250,9 +267,10 @@ async def save_tls(
 
     background_tasks.add_task(_restart_proxy_after_tls)
 
-    base = domain_manager.public_settings("")
     return {
-        **base,
+        "ok": True,
+        "tls_ready": True,
+        "tls_valid": True,
         "proxy_running": proxy_manager.is_running(),
         "proxy_error": proxy_manager.last_error(),
         "proxy_restarting": True,
