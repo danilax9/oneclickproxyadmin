@@ -221,13 +221,20 @@ function canActivateSsl(s) {
   return Boolean(s.domain) && ['verified', 'error', 'active'].includes(s.ssl_status) && s.ssl_status !== 'issuing';
 }
 
+function buildProxyUrl(type, username, password, host, port) {
+  return `${type}://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}:${port}`;
+}
+
 function renderDomainUI() {
   const s = DOMAIN_SETTINGS;
   const badge = document.getElementById('sslBadge');
   const tlsReady = Boolean(s.tls_ready || s.https_allowed);
-  if (tlsReady) {
+  if (tlsReady && s.tls_valid !== false) {
     badge.textContent = 'HTTPS готов';
     badge.className = 'badge badge-ssl-active';
+  } else if (tlsReady && s.tls_valid === false) {
+    badge.textContent = 'TLS ошибка';
+    badge.className = 'badge badge-blocked';
   } else {
     badge.textContent = 'Укажите tls-cert / tls-key';
     badge.className = 'badge badge-ssl-none';
@@ -241,10 +248,18 @@ function renderDomainUI() {
 
   const tlsStatusBox = document.getElementById('tlsStatusBox');
   const tlsStatusText = document.getElementById('tlsStatusText');
-  if (tlsReady) {
+  if (tlsReady && s.tls_valid !== false) {
     tlsStatusBox.classList.remove('hidden');
-    tlsStatusText.textContent = `HTTPS-прокси включены. Домен в ссылках: ${s.domain || CONNECTION_HOST}`;
-    tlsStatusText.style.color = 'var(--success)';
+    const sans = (s.cert_sans || []).join(', ');
+    tlsStatusText.textContent = `HTTPS-прокси активны. Подключайтесь как https://user:pass@${s.domain || CONNECTION_HOST}:ПОРТ (не http).${sans ? ` SAN: ${sans}` : ''}`;
+    tlsStatusText.style.color = s.cert_domain_match === false ? 'var(--warning, #b45309)' : 'var(--success)';
+    if (s.cert_domain_match === false) {
+      tlsStatusText.textContent += ` Домен «${s.domain}» не найден в сертификате — клиент может ругаться на TLS.`;
+    }
+  } else if (s.tls_valid === false && s.tls_error) {
+    tlsStatusBox.classList.remove('hidden');
+    tlsStatusText.textContent = `TLS не прошёл проверку: ${s.tls_error}. HTTPS-порты не поднимутся.`;
+    tlsStatusText.style.color = 'var(--danger)';
   } else if (s.cert_path || s.key_path) {
     tlsStatusBox.classList.remove('hidden');
     tlsStatusText.textContent = 'Файлы не найдены внутри контейнера. Смонтируйте /etc/letsencrypt и перезапустите.';
@@ -316,6 +331,10 @@ function applyDomainSettings(info) {
     ssl_active: info.ssl_active,
     https_allowed: info.https_allowed,
     tls_ready: info.tls_ready,
+    tls_valid: info.tls_valid,
+    tls_error: info.tls_error,
+    cert_sans: info.cert_sans,
+    cert_domain_match: info.cert_domain_match,
     panel_url: info.panel_url,
     server_ip: info.server_ip || info.ip,
     cert_path: info.cert_path,
@@ -576,7 +595,7 @@ async function loadUsers() {
     const copyBtns = item.querySelectorAll('.copy-btn');
     (u.ports || []).forEach((p, idx) => {
       const host = p.type === 'https' ? CONNECTION_HOST : SERVER_IP;
-      const link = `${p.type}://${u.username}:${u.password}@${host}:${p.port}`;
+      const link = buildProxyUrl(p.type, u.username, u.password, host, p.port);
       linkEls[idx].textContent = link;
       copyBtns[idx].addEventListener('click', () => copyToClipboard(link, copyBtns[idx]));
     });

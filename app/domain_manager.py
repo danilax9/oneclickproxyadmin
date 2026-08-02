@@ -245,6 +245,85 @@ def _find_stored_cert_paths(domain: str) -> Optional[tuple[str, str]]:
     return None
 
 
+def get_cert_sans(cert_path: str) -> list[str]:
+    try:
+        out = subprocess.run(
+            ["openssl", "x509", "-in", cert_path, "-noout", "-ext", "subjectAltName"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=True,
+        ).stdout
+        return re.findall(r"DNS:([^,\s]+)", out)
+    except (subprocess.SubprocessError, FileNotFoundError, OSError):
+        return []
+
+
+def validate_tls_pair(cert_path: str, key_path: str) -> tuple[bool, str]:
+    """Проверка пары cert/key (RSA и ECDSA / Let's Encrypt)."""
+    try:
+        subprocess.run(
+            ["openssl", "x509", "-in", cert_path, "-noout"],
+            capture_output=True,
+            check=True,
+            timeout=5,
+        )
+        subprocess.run(
+            ["openssl", "pkey", "-in", key_path, "-noout"],
+            capture_output=True,
+            check=True,
+            timeout=5,
+        )
+        cert_pub = subprocess.run(
+            ["openssl", "x509", "-in", cert_path, "-noout", "-pubkey"],
+            capture_output=True,
+            check=True,
+            timeout=5,
+            text=True,
+        ).stdout.strip()
+        key_pub = subprocess.run(
+            ["openssl", "pkey", "-in", key_path, "-pubout"],
+            capture_output=True,
+            check=True,
+            timeout=5,
+            text=True,
+        ).stdout.strip()
+        if cert_pub and cert_pub == key_pub:
+            return True, ""
+        return False, "Сертификат и ключ не совпадают"
+    except (subprocess.SubprocessError, FileNotFoundError, OSError) as e:
+        return False, f"Ошибка проверки TLS: {e}"
+
+
+def tls_status() -> dict:
+    paths = get_tls_paths()
+    if not paths:
+        return {
+            "ready": False,
+            "valid": False,
+            "error": "Укажите tls-cert и tls-key",
+            "sans": [],
+        }
+    cert, key = paths
+    valid, err = validate_tls_pair(cert, key)
+    sans = get_cert_sans(cert)
+    domain = get_settings().get("domain")
+    domain_ok = True
+    if domain and sans:
+        domain_ok = domain in sans or any(
+            san.startswith("*.") and domain.endswith(san[1:]) for san in sans
+        )
+    return {
+        "ready": True,
+        "valid": valid,
+        "error": err,
+        "sans": sans,
+        "domain_match": domain_ok,
+        "cert_path": cert,
+        "key_path": key,
+    }
+
+
 def get_tls_paths() -> Optional[tuple[str, str]]:
     """Пути tls-cert / tls-key для HTTPS-прокси (как https_port в Squid)."""
     s = get_settings()
@@ -666,6 +745,7 @@ def public_settings(fallback_ip: str) -> dict:
     hint = xray_hint(s["domain"]) if active and mode in ("dns", "external") and s.get("domain") else None
 
     guide = get_ssl_guide(mode, s.get("domain"), fallback_ip)
+    tls = tls_status()
 
     return {
         "domain": s.get("domain"),
@@ -682,6 +762,10 @@ def public_settings(fallback_ip: str) -> dict:
         "server_ip": fallback_ip,
         "https_allowed": is_https_ready(),
         "tls_ready": is_https_ready(),
+        "tls_valid": tls["valid"],
+        "tls_error": tls["error"],
+        "cert_sans": tls["sans"],
+        "cert_domain_match": tls.get("domain_match", True),
         "xray_hint": hint,
         "cf_token_configured": is_cf_configured(),
         "ssl_guide": guide,

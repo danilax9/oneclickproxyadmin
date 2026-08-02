@@ -160,6 +160,10 @@
             <div class="tls-mount-hint">
               <strong>Смонтируйте сертификаты в контейнер</strong> — в <code>docker-compose.yml</code> или <code>deploy.sh</code>:
               <pre class="tls-mount-code">- /etc/letsencrypt:/etc/letsencrypt:ro</pre>
+              <p style="margin:10px 0 0;font-size:12px;color:var(--text-secondary)">
+                HTTPS-прокси: клиент подключается по схеме <code>https://</code> к домену (A-запись → IP сервера), не <code>http://</code>.
+                Порт прокси (например 3128) должен быть открыт в firewall.
+              </p>
             </div>
 
             <div class="domain-status hidden" id="tlsStatusBox">

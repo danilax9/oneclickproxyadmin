@@ -163,36 +163,8 @@ def _kill_stale_3proxy():
 
 
 def _tls_certs_valid(cert: str, key: str) -> bool:
-    try:
-        subprocess.run(
-            ["openssl", "x509", "-in", cert, "-noout"],
-            capture_output=True,
-            check=True,
-            timeout=5,
-        )
-        subprocess.run(
-            ["openssl", "pkey", "-in", key, "-noout"],
-            capture_output=True,
-            check=True,
-            timeout=5,
-        )
-        cert_mod = subprocess.run(
-            ["openssl", "x509", "-in", cert, "-noout", "-modulus"],
-            capture_output=True,
-            check=True,
-            timeout=5,
-            text=True,
-        ).stdout.strip()
-        key_mod = subprocess.run(
-            ["openssl", "pkey", "-in", key, "-noout", "-modulus"],
-            capture_output=True,
-            check=True,
-            timeout=5,
-            text=True,
-        ).stdout.strip()
-        return bool(cert_mod and cert_mod == key_mod)
-    except (subprocess.SubprocessError, FileNotFoundError, OSError):
-        return False
+    valid, _ = domain_manager.validate_tls_pair(cert, key)
+    return valid
 
 
 def _read_log_tail(max_lines: int = 40) -> str:
@@ -246,6 +218,8 @@ def _build_config_text() -> str:
 
     if use_ssl_plugin:
         lines.append(f"plugin {SSL_PLUGIN_PATH} ssl_plugin")
+        lines.append(f"ssl_server_cert {cert_paths[0]}")
+        lines.append(f"ssl_server_key {cert_paths[1]}")
         lines.append("")
 
     all_usernames = [u["username"] for u in users]
@@ -285,8 +259,6 @@ def _build_config_text() -> str:
                 lines.append(f"# HTTPS {p['port']} — SSL plugin недоступен, выполните ./deploy.sh")
             else:
                 lines.append(f"# tls-cert={cert_paths[0]} tls-key={cert_paths[1]}")
-                lines.append(f"ssl_server_cert {cert_paths[0]}")
-                lines.append(f"ssl_server_key {cert_paths[1]}")
                 lines.append("ssl_serv")
                 lines.append(f"proxy -p{p['port']}")
                 lines.append("")
@@ -327,6 +299,7 @@ def diagnostics() -> dict:
         "managed_pid": managed_pid,
         "stale_pids": stale,
         "ssl_plugin": Path(SSL_PLUGIN_PATH).is_file(),
+        "tls": domain_manager.tls_status(),
         "config_path": str(CONFIG_PATH),
         "config": config_text,
         "log_tail": _read_log_tail(),
