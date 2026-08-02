@@ -22,8 +22,8 @@
         Обзор
       </button>
       <button type="button" class="nav-item" data-tab="domain">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-        Домен и SSL
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        TLS
       </button>
       <button type="button" class="nav-item" data-tab="ports">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
@@ -91,8 +91,8 @@
             <div class="panel-body padded">
               <div class="quick-actions">
                 <button type="button" class="quick-action" data-goto="domain">
-                  <span class="quick-action-title">Настроить домен</span>
-                  <span class="quick-action-desc">SSL и HTTPS-прокси</span>
+                  <span class="quick-action-title">Настроить TLS</span>
+                  <span class="quick-action-desc">Пути tls-cert / tls-key</span>
                 </button>
                 <button type="button" class="quick-action" data-goto="ports">
                   <span class="quick-action-title">Добавить порт</span>
@@ -120,91 +120,101 @@
         </div>
       </div>
 
-      <!-- Domain -->
+      <!-- TLS -->
       <div class="tab-panel" id="tab-domain">
         <section class="panel" id="domainPanel">
           <div class="panel-header">
             <div>
-              <h2 class="panel-title">Домен и SSL</h2>
-              <p class="panel-subtitle">443 занят Xray? Выберите режим «Внешний» — Cloudflare не нужен</p>
+              <h2 class="panel-title">TLS для HTTPS-прокси</h2>
+              <p class="panel-subtitle">Как <code>https_port</code> в Squid — укажите пути к сертификату и ключу</p>
             </div>
             <span class="badge badge-ssl-none" id="sslBadge">Не настроен</span>
           </div>
           <div class="panel-body padded">
-            <div class="domain-grid">
-              <div class="form-group" style="margin-bottom:0">
-                <label class="form-label" for="domainInput">Домен</label>
-                <input id="domainInput" type="text" placeholder="proxy.example.com" class="input">
-                <p class="form-hint">Укажите поддомен или домен, который контролируете</p>
-              </div>
-              <div class="domain-actions">
-                <button id="saveDomainBtn" class="btn btn-primary btn-sm">Сохранить</button>
-                <button id="verifyDomainBtn" class="btn btn-secondary btn-sm" disabled>Проверить DNS</button>
-                <button id="activateSslBtn" class="btn btn-primary btn-sm" disabled>Выпустить SSL</button>
-                <button id="removeDomainBtn" class="btn btn-danger btn-sm" disabled>Отключить</button>
-              </div>
+
+            <div class="squid-example">
+              <span class="squid-example-label">Аналог в Squid:</span>
+              <code>https_port 3128 tls-cert=/etc/letsencrypt/live/домен/fullchain.pem tls-key=.../privkey.pem</code>
             </div>
 
             <div class="form-group">
-              <label class="form-label" for="sslModeInput">Режим SSL</label>
-              <select id="sslModeInput" class="select">
-                <option value="external">Внешний — сертификаты Xray / acme.sh (рекомендуется)</option>
-                <option value="dns">DNS — Let's Encrypt через Cloudflare</option>
-                <option value="caddy">Caddy — автоматически (нужны свободные 80/443)</option>
-              </select>
-              <p class="form-hint" id="sslModeHint">Если 443 занят Xray — используйте режим «Внешний»</p>
+              <label class="form-label" for="certPathInput">tls-cert (fullchain.pem)</label>
+              <input id="certPathInput" type="text" class="input" placeholder="/etc/letsencrypt/live/proxy.example.com/fullchain.pem">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="keyPathInput">tls-key (privkey.pem)</label>
+              <input id="keyPathInput" type="text" class="input" placeholder="/etc/letsencrypt/live/proxy.example.com/privkey.pem">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="domainInput">Домен (для строк подключения)</label>
+              <input id="domainInput" type="text" class="input" placeholder="proxy.example.com">
+              <p class="form-hint">Можно оставить пустым — возьмётся из пути Let's Encrypt</p>
             </div>
 
-            <div id="sslGuideBox" class="ssl-guide">
-              <div class="ssl-guide-header">
-                <span class="ssl-guide-badge" id="sslGuideBadge">Инструкция</span>
-                <h3 class="ssl-guide-title" id="sslGuideTitle"></h3>
-              </div>
-              <p class="ssl-guide-summary" id="sslGuideSummary"></p>
-              <ol class="ssl-guide-steps" id="sslGuideSteps"></ol>
-              <pre class="ssl-guide-command hidden" id="sslGuideCommand"></pre>
+            <div class="domain-actions" style="margin-bottom:20px">
+              <button id="saveTlsBtn" class="btn btn-primary btn-sm">Сохранить TLS</button>
             </div>
 
-            <div id="externalCertFields" class="external-cert-fields hidden">
-              <div class="form-group">
-                <label class="form-label" for="certPathInput">Путь к сертификату (fullchain)</label>
-                <input id="certPathInput" type="text" placeholder="/etc/xray/cert/fullchain.pem" class="input">
-              </div>
-              <div class="form-group" style="margin-bottom:0">
-                <label class="form-label" for="keyPathInput">Путь к ключу</label>
-                <input id="keyPathInput" type="text" placeholder="/etc/xray/cert/key.pem" class="input">
-                <p class="form-hint">Смонтируйте каталог с сертификатами в docker-compose (например /etc/xray:/etc/xray:ro)</p>
-              </div>
-              <div class="domain-actions" style="margin-top:12px">
-                <button id="saveSslModeBtn" class="btn btn-secondary btn-sm">Сохранить пути</button>
-              </div>
+            <div class="tls-mount-hint">
+              <strong>Смонтируйте сертификаты в контейнер</strong> — в <code>docker-compose.yml</code> или <code>deploy.sh</code>:
+              <pre class="tls-mount-code">- /etc/letsencrypt:/etc/letsencrypt:ro</pre>
             </div>
 
-            <div class="dns-instructions" id="dnsInstructions">
-              <div class="dns-instructions-title">Настройка DNS</div>
-              <div class="dns-record">
-                <span class="dns-record-type">A</span>
-                <span class="dns-record-name" id="dnsName">@</span>
-                <span class="dns-record-value" id="dnsValue">—</span>
-                <button type="button" class="btn btn-icon btn-sm" id="copyDnsBtn" title="Копировать IP">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                </button>
+            <div class="domain-status hidden" id="tlsStatusBox">
+              <p class="domain-status-text" id="tlsStatusText"></p>
+            </div>
+
+            <details class="advanced-panel">
+              <summary>HTTPS для панели (опционально, если нужен https://домен)</summary>
+              <div class="advanced-panel-body">
+                <div class="domain-actions" style="margin:12px 0">
+                  <button id="verifyDomainBtn" class="btn btn-secondary btn-sm" disabled>Проверить DNS</button>
+                  <button id="activateSslBtn" class="btn btn-primary btn-sm" disabled>Выпустить SSL панели</button>
+                  <button id="removeDomainBtn" class="btn btn-danger btn-sm" disabled>Сбросить SSL панели</button>
+                </div>
+                <div class="form-group">
+                  <label class="form-label" for="sslModeInput">Режим SSL панели</label>
+                  <select id="sslModeInput" class="select">
+                    <option value="external">Внешний — те же сертификаты</option>
+                    <option value="dns">DNS — Cloudflare (нужен CF_API_TOKEN)</option>
+                    <option value="caddy">Caddy — порты 80/443</option>
+                  </select>
+                  <p class="form-hint" id="sslModeHint"></p>
+                </div>
+                <div id="sslGuideBox" class="ssl-guide">
+                  <div class="ssl-guide-header">
+                    <span class="ssl-guide-badge" id="sslGuideBadge">Инструкция</span>
+                    <h3 class="ssl-guide-title" id="sslGuideTitle"></h3>
+                  </div>
+                  <p class="ssl-guide-summary" id="sslGuideSummary"></p>
+                  <ol class="ssl-guide-steps" id="sslGuideSteps"></ol>
+                  <pre class="ssl-guide-command hidden" id="sslGuideCommand"></pre>
+                </div>
+                <div class="dns-instructions" id="dnsInstructions">
+                  <div class="dns-instructions-title">DNS A-запись</div>
+                  <div class="dns-record">
+                    <span class="dns-record-type">A</span>
+                    <span class="dns-record-name" id="dnsName">@</span>
+                    <span class="dns-record-value" id="dnsValue">—</span>
+                    <button type="button" class="btn btn-icon btn-sm" id="copyDnsBtn" title="Копировать IP">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    </button>
+                  </div>
+                </div>
+                <div class="domain-status hidden" id="domainStatusBox">
+                  <p class="domain-status-text" id="domainStatusText"></p>
+                  <p class="domain-panel-url hidden" id="panelUrlBox">
+                    Панель: <a id="panelUrlLink" href="#" target="_blank" rel="noopener"></a>
+                  </p>
+                </div>
+                <div class="xray-hint hidden" id="xrayHintBox">
+                  <div class="xray-hint-title" id="xrayHintTitle"></div>
+                  <ul class="xray-hint-steps" id="xrayHintSteps"></ul>
+                  <pre class="xray-snippet" id="xraySnippet"></pre>
+                </div>
               </div>
-              <p class="form-hint">После добавления записи нажмите «Проверить DNS», затем «Выпустить SSL»</p>
-            </div>
+            </details>
 
-            <div class="domain-status hidden" id="domainStatusBox">
-              <p class="domain-status-text" id="domainStatusText"></p>
-              <p class="domain-panel-url hidden" id="panelUrlBox">
-                Панель: <a id="panelUrlLink" href="#" target="_blank" rel="noopener"></a>
-              </p>
-            </div>
-
-            <div class="xray-hint hidden" id="xrayHintBox">
-              <div class="xray-hint-title" id="xrayHintTitle"></div>
-              <ul class="xray-hint-steps" id="xrayHintSteps"></ul>
-              <pre class="xray-snippet" id="xraySnippet"></pre>
-            </div>
             <p id="domainError" class="form-error hidden"></p>
           </div>
         </section>
@@ -291,7 +301,7 @@
           <option value="http">HTTP</option>
           <option value="https" id="httpsPortOption">HTTPS</option>
         </select>
-        <p class="form-hint hidden" id="httpsPortHint">HTTPS доступен только после выпуска SSL-сертификата для домена</p>
+        <p class="form-hint hidden" id="httpsPortHint">Сначала укажите tls-cert и tls-key в разделе «TLS»</p>
       </div>
       <p id="portError" class="form-error hidden"></p>
     </div>

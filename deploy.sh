@@ -15,8 +15,7 @@ echo "→ Собираем образ..."
 docker build -t "$IMAGE" .
 
 # Опциональный volume с сертификатами Xray (раскомментируйте при необходимости)
-XRAY_MOUNT=""
-# XRAY_MOUNT="-v /etc/xray:/etc/xray:ro"
+XRAY_MOUNT="-v /etc/letsencrypt:/etc/letsencrypt:ro"
 
 # Важно: не передаём -e ADMIN_PASSWORD поверх --env-file — иначе .env игнорируется
 # и подставляется changeme из пустой переменной оболочки.

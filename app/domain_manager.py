@@ -74,15 +74,29 @@ def _update_settings(**fields):
         cur.execute(f"UPDATE domain_settings SET {cols} WHERE id=1", vals)
 
 
+def is_https_ready() -> bool:
+    """HTTPS-прокси порты доступны, если заданы рабочие пути к сертификату и ключу."""
+    return get_tls_paths() is not None
+
+
 def is_ssl_active() -> bool:
     s = get_settings()
     return s.get("ssl_status") == "active" and bool(s.get("domain"))
 
 
+def _hostname_from_cert_path(cert_path: str) -> Optional[str]:
+    m = re.search(r"/live/([^/]+)/", cert_path)
+    return m.group(1) if m else None
+
+
 def get_connection_host(fallback_ip: str) -> str:
     s = get_settings()
-    if s.get("ssl_status") == "active" and s.get("domain"):
+    if s.get("domain"):
         return s["domain"]
+    cert = s.get("cert_path") or ""
+    host = _hostname_from_cert_path(cert)
+    if host:
+        return host
     return fallback_ip
 
 
@@ -230,15 +244,15 @@ def _find_stored_cert_paths(domain: str) -> Optional[tuple[str, str]]:
     return None
 
 
-def get_cert_paths() -> Optional[tuple[str, str]]:
+def get_tls_paths() -> Optional[tuple[str, str]]:
+    """Пути tls-cert / tls-key для HTTPS-прокси (как https_port в Squid)."""
     s = get_settings()
-    domain = s.get("domain")
-
     if s.get("cert_path") and s.get("key_path"):
         cp, kp = Path(s["cert_path"]), Path(s["key_path"])
         if cp.is_file() and kp.is_file():
             return str(cp), str(kp)
 
+    domain = s.get("domain")
     if domain:
         stored = _find_stored_cert_paths(domain)
         if stored:
@@ -246,8 +260,11 @@ def get_cert_paths() -> Optional[tuple[str, str]]:
         caddy = _find_caddy_cert_paths(domain)
         if caddy:
             return caddy
-
     return None
+
+
+def get_cert_paths() -> Optional[tuple[str, str]]:
+    return get_tls_paths()
 
 
 def find_cert_paths(domain: str) -> Optional[tuple[str, str]]:
@@ -611,10 +628,33 @@ def ensure_caddy():
         start_caddy(settings["domain"])
 
 
+def save_tls_config(
+    cert_path: str,
+    key_path: str,
+    domain: Optional[str] = None,
+) -> dict:
+    """Сохранить tls-cert / tls-key — сразу включает HTTPS-прокси порты."""
+    cert = validate_cert_path(cert_path, "tls-cert")
+    key = validate_cert_path(key_path, "tls-key")
+    fields: dict = {"cert_path": cert, "key_path": key, "ssl_error": None}
+    if domain is not None:
+        d = domain.strip().lower().rstrip(".")
+        if d:
+            fields["domain"] = validate_domain(d)
+        else:
+            fields["domain"] = _hostname_from_cert_path(cert)
+    elif not get_settings().get("domain"):
+        auto = _hostname_from_cert_path(cert)
+        if auto:
+            fields["domain"] = auto
+    _update_settings(**fields)
+    return get_settings()
+
+
 def require_https_allowed():
-    if not is_ssl_active():
+    if not is_https_ready():
         raise ValueError(
-            "HTTPS-порты доступны только после подключения домена и выпуска SSL-сертификата"
+            "Укажите пути tls-cert и tls-key в разделе «TLS» (как https_port в Squid)"
         )
 
 
@@ -639,7 +679,8 @@ def public_settings(fallback_ip: str) -> dict:
         "connection_host": get_connection_host(fallback_ip),
         "panel_url": get_panel_url(fallback_ip),
         "server_ip": fallback_ip,
-        "https_allowed": active,
+        "https_allowed": is_https_ready(),
+        "tls_ready": is_https_ready(),
         "xray_hint": hint,
         "cf_token_configured": is_cf_configured(),
         "ssl_guide": guide,

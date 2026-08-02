@@ -166,8 +166,7 @@ def _build_config_text() -> str:
     if not ports:
         lines.append("# Портов пока нет — 3proxy запущен без активных прокси-сервисов")
 
-    domain = domain_manager.get_settings().get("domain") if domain_manager.is_ssl_active() else None
-    cert_paths = domain_manager.get_cert_paths() if domain else None
+    cert_paths = domain_manager.get_tls_paths()
 
     for p in ports:
         allowed = [users_by_id[uid]["username"] for uid in port_to_users.get(p["id"], []) if uid in users_by_id]
@@ -179,9 +178,10 @@ def _build_config_text() -> str:
             lines.append("deny *")
         if p["type"] == "https":
             if not cert_paths:
-                lines.append(f"# HTTPS-порт {p['port']} отключён: нет SSL-сертификата")
+                lines.append(f"# HTTPS {p['port']} — задайте tls-cert и tls-key в админке")
                 lines.append("deny *")
             else:
+                lines.append(f"# tls-cert={cert_paths[0]} tls-key={cert_paths[1]}")
                 lines.append(f"sslcert {cert_paths[0]} {cert_paths[1]}")
                 lines.append(f"proxy -p{p['port']} -e")
         else:

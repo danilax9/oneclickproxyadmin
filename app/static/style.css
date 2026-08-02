@@ -883,7 +883,72 @@ table.data-table tbody tr:hover td {
   gap: 8px;
 }
 
-.dns-mode-note {
+.squid-example {
+  margin-bottom: 20px;
+  padding: 12px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 12px;
+}
+
+.squid-example-label {
+  display: block;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.squid-example code {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.tls-mount-hint {
+  padding: 12px 14px;
+  background: var(--primary-soft);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.tls-mount-code {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  background: var(--surface);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.advanced-panel {
+  margin-top: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+
+.advanced-panel summary {
+  padding: 12px 14px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.advanced-panel-body {
+  padding: 0 14px 14px;
+  border-top: 1px solid var(--border);
+}
+
+.panel-subtitle code {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
   margin-bottom: 16px;
 }
 

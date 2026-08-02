@@ -88,7 +88,10 @@ function updateOverviewStatus() {
   proxyEl.textContent = proxyStatus?.textContent || '—';
   proxyEl.style.color = proxyStatus?.textContent === 'Работает' ? 'var(--success)' : '';
 
-  if (DOMAIN_SETTINGS.ssl_active) {
+  if (DOMAIN_SETTINGS.tls_ready || DOMAIN_SETTINGS.https_allowed) {
+    sslEl.textContent = 'Готов';
+    sslEl.style.color = 'var(--success)';
+  } else if (DOMAIN_SETTINGS.ssl_active) {
     sslEl.textContent = 'Активен';
     sslEl.style.color = 'var(--success)';
   } else {
@@ -102,7 +105,7 @@ function updateOverviewStatus() {
 
 const TAB_META = {
   overview: { title: 'Обзор', subtitle: 'Сводка по серверу и прокси' },
-  domain: { title: 'Домен и SSL', subtitle: 'Подключение домена и сертификаты' },
+  domain: { title: 'TLS', subtitle: 'Сертификаты для HTTPS-прокси (как Squid)' },
   ports: { title: 'Порты', subtitle: 'Управление прокси-портами' },
   users: { title: 'Пользователи', subtitle: 'Учётные записи и строки подключения' },
 };
@@ -214,36 +217,51 @@ function renderSslGuide(guide) {
 function canActivateSsl(s) {
   const mode = s.ssl_mode || 'external';
   if (mode === 'dns' && !s.cf_token_configured) return false;
+  if (mode === 'external') return Boolean(s.tls_ready || s.https_allowed);
   return Boolean(s.domain) && ['verified', 'error', 'active'].includes(s.ssl_status) && s.ssl_status !== 'issuing';
 }
 
 function renderDomainUI() {
   const s = DOMAIN_SETTINGS;
   const badge = document.getElementById('sslBadge');
-  const label = SSL_LABELS[s.ssl_status] || SSL_LABELS.none;
-  badge.textContent = label.text;
-  badge.className = `badge ${label.cls}`;
+  const tlsReady = Boolean(s.tls_ready || s.https_allowed);
+  if (tlsReady) {
+    badge.textContent = 'HTTPS готов';
+    badge.className = 'badge badge-ssl-active';
+  } else {
+    badge.textContent = 'Укажите tls-cert / tls-key';
+    badge.className = 'badge badge-ssl-none';
+  }
 
   document.getElementById('domainInput').value = s.domain || '';
   document.getElementById('dnsValue').textContent = s.server_ip || SERVER_IP || '—';
   document.getElementById('dnsName').textContent = s.domain || 'ваш домен';
+  document.getElementById('certPathInput').value = s.cert_path || '';
+  document.getElementById('keyPathInput').value = s.key_path || '';
+
+  const tlsStatusBox = document.getElementById('tlsStatusBox');
+  const tlsStatusText = document.getElementById('tlsStatusText');
+  if (tlsReady) {
+    tlsStatusBox.classList.remove('hidden');
+    tlsStatusText.textContent = `HTTPS-прокси включены. Домен в ссылках: ${s.domain || CONNECTION_HOST}`;
+    tlsStatusText.style.color = 'var(--success)';
+  } else if (s.cert_path || s.key_path) {
+    tlsStatusBox.classList.remove('hidden');
+    tlsStatusText.textContent = 'Файлы не найдены внутри контейнера. Смонтируйте /etc/letsencrypt и перезапустите.';
+    tlsStatusText.style.color = 'var(--danger)';
+  } else {
+    tlsStatusBox.classList.add('hidden');
+  }
 
   const mode = s.ssl_mode || 'external';
   document.getElementById('sslModeInput').value = mode;
   document.getElementById('sslModeHint').textContent = SSL_MODE_HINTS[mode] || '';
-  document.getElementById('externalCertFields').classList.toggle('hidden', mode !== 'external');
-  document.getElementById('certPathInput').value = s.cert_path || '';
-  document.getElementById('keyPathInput').value = s.key_path || '';
-
   if (s.ssl_guide) renderSslGuide(s.ssl_guide);
 
   const hasDomain = Boolean(s.domain);
   document.getElementById('verifyDomainBtn').disabled = !hasDomain || s.ssl_status === 'issuing';
   document.getElementById('activateSslBtn').disabled = !canActivateSsl(s);
   document.getElementById('removeDomainBtn').disabled = !hasDomain || s.ssl_status === 'issuing';
-  document.getElementById('activateSslBtn').textContent =
-    mode === 'external' && s.ssl_status !== 'active' ? 'Подключить SSL' :
-    s.ssl_status === 'active' ? 'Перевыпустить SSL' : 'Выпустить SSL';
 
   const statusBox = document.getElementById('domainStatusBox');
   const statusText = document.getElementById('domainStatusText');
@@ -256,23 +274,12 @@ function renderDomainUI() {
     statusText.style.color = 'var(--danger)';
   } else if (s.ssl_status === 'issuing') {
     statusBox.classList.remove('hidden');
-    statusText.textContent = 'Выпуск сертификата Let\'s Encrypt… Подождите до 2 минут.';
+    statusText.textContent = 'Выпуск SSL для панели…';
     statusText.style.color = 'var(--text-secondary)';
   } else if (s.ssl_active) {
     statusBox.classList.remove('hidden');
-    const modeNote = mode === 'caddy'
-      ? 'Caddy обслуживает HTTPS-панель.'
-      : 'Сертификат готов. Настройте Xray fallback для HTTPS-панели (см. ниже).';
-    statusText.textContent = `Домен подключён. ${modeNote}`;
+    statusText.textContent = 'HTTPS-панель активна.';
     statusText.style.color = 'var(--success)';
-  } else if (hasDomain) {
-    statusBox.classList.remove('hidden');
-    if (mode === 'dns' && !s.cf_token_configured) {
-      statusText.textContent = 'DNS-режим недоступен без CF_API_TOKEN. Используйте режим «Внешний» — пошаговая инструкция выше.';
-    } else {
-      statusText.textContent = 'Добавьте A-запись, проверьте DNS и подключите SSL.';
-    }
-    statusText.style.color = 'var(--text-secondary)';
   } else {
     statusBox.classList.add('hidden');
   }
@@ -289,8 +296,8 @@ function renderDomainUI() {
   if (s.ssl_active && s.xray_hint && mode !== 'caddy') {
     xrayBox.classList.remove('hidden');
     document.getElementById('xrayHintTitle').textContent = s.xray_hint.title;
-    const stepsEl = document.getElementById('xrayHintSteps');
-    stepsEl.innerHTML = (s.xray_hint.steps || []).map(st => `<li>${escapeHtml(st)}</li>`).join('');
+    document.getElementById('xrayHintSteps').innerHTML =
+      (s.xray_hint.steps || []).map(st => `<li>${escapeHtml(st)}</li>`).join('');
     document.getElementById('xraySnippet').textContent = s.xray_hint.snippet || '';
   } else {
     xrayBox.classList.add('hidden');
@@ -308,6 +315,7 @@ function applyDomainSettings(info) {
     ssl_error: info.ssl_error,
     ssl_active: info.ssl_active,
     https_allowed: info.https_allowed,
+    tls_ready: info.tls_ready,
     panel_url: info.panel_url,
     server_ip: info.server_ip || info.ip,
     cert_path: info.cert_path,
@@ -340,19 +348,21 @@ async function loadServerInfo() {
   updateOverviewStatus();
 }
 
-// -------------------------------------------------------------- Domain ---
+// -------------------------------------------------------------- TLS ------
 
-document.getElementById('saveDomainBtn').addEventListener('click', async () => {
+document.getElementById('saveTlsBtn').addEventListener('click', async () => {
+  const cert_path = document.getElementById('certPathInput').value.trim();
+  const key_path = document.getElementById('keyPathInput').value.trim();
   const domain = document.getElementById('domainInput').value.trim();
-  const ssl_mode = document.getElementById('sslModeInput').value;
   const errorEl = document.getElementById('domainError');
   errorEl.classList.add('hidden');
   try {
-    await api('/api/domain', { method: 'PUT', body: JSON.stringify({ domain, ssl_mode }) });
-    if (ssl_mode === 'external') {
-      await saveSslModePaths(false);
-    }
+    await api('/api/tls', {
+      method: 'PUT',
+      body: JSON.stringify({ cert_path, key_path, domain: domain || null }),
+    });
     await loadServerInfo();
+    await loadPorts();
   } catch (e) {
     errorEl.textContent = e.message;
     errorEl.classList.remove('hidden');
@@ -370,27 +380,15 @@ document.getElementById('sslModeInput').addEventListener('change', async () => {
   }
 });
 
-async function saveSslModePaths(reload = true) {
-  const ssl_mode = document.getElementById('sslModeInput').value;
+async function saveTlsPathsForPanel() {
   const cert_path = document.getElementById('certPathInput').value.trim();
   const key_path = document.getElementById('keyPathInput').value.trim();
-  await api('/api/domain/ssl', {
-    method: 'PATCH',
-    body: JSON.stringify({ ssl_mode, cert_path: cert_path || null, key_path: key_path || null }),
+  const domain = document.getElementById('domainInput').value.trim();
+  await api('/api/tls', {
+    method: 'PUT',
+    body: JSON.stringify({ cert_path, key_path, domain: domain || null }),
   });
-  if (reload) await loadServerInfo();
 }
-
-document.getElementById('saveSslModeBtn').addEventListener('click', async () => {
-  const errorEl = document.getElementById('domainError');
-  errorEl.classList.add('hidden');
-  try {
-    await saveSslModePaths(true);
-  } catch (e) {
-    errorEl.textContent = e.message;
-    errorEl.classList.remove('hidden');
-  }
-});
 
 document.getElementById('verifyDomainBtn').addEventListener('click', async () => {
   const errorEl = document.getElementById('domainError');
@@ -418,7 +416,7 @@ document.getElementById('activateSslBtn').addEventListener('click', async () => 
   try {
     const mode = document.getElementById('sslModeInput').value;
     if (mode === 'external') {
-      await saveSslModePaths(false);
+      await saveTlsPathsForPanel();
     } else {
       await api('/api/domain/ssl', {
         method: 'PATCH',

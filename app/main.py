@@ -97,6 +97,12 @@ class DomainSslBody(BaseModel):
     key_path: Optional[str] = None
 
 
+class TlsBody(BaseModel):
+    cert_path: str = Field(min_length=1)
+    key_path: str = Field(min_length=1)
+    domain: Optional[str] = None
+
+
 @app.get("/api/domain")
 async def get_domain(_: bool = Depends(require_auth)):
     ip = await utils.get_external_ip()
@@ -110,6 +116,17 @@ def save_domain(body: DomainBody, _: bool = Depends(require_auth)):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"ok": True}
+
+
+@app.put("/api/tls")
+async def save_tls(body: TlsBody, _: bool = Depends(require_auth)):
+    try:
+        domain_manager.save_tls_config(body.cert_path, body.key_path, body.domain)
+        proxy_manager.reload()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    ip = await utils.get_external_ip()
+    return domain_manager.public_settings(ip)
 
 
 @app.patch("/api/domain/ssl")

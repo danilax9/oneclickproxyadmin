@@ -17,8 +17,7 @@ services:
     volumes:
       - proxy-data:/app/data
       - proxy-logs:/var/log/3proxy
-      # Раскомментируйте для режима «Внешний» — сертификаты Xray на хосте:
-      # - /etc/xray:/etc/xray:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
 
 volumes:
   proxy-data:
