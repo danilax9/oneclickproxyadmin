@@ -155,8 +155,11 @@ def _build_config_text() -> str:
 
     cert_paths = domain_manager.get_tls_paths()
     has_https = any(p["type"] == "https" for p in ports)
+    use_ssl_plugin = bool(
+        has_https and cert_paths and Path(SSL_PLUGIN_PATH).is_file()
+    )
 
-    if has_https and cert_paths and Path(SSL_PLUGIN_PATH).is_file():
+    if use_ssl_plugin:
         lines.append(f"plugin {SSL_PLUGIN_PATH} ssl_plugin")
         lines.append("")
 
@@ -188,6 +191,9 @@ def _build_config_text() -> str:
             if not cert_paths:
                 lines.append(f"# HTTPS {p['port']} — задайте tls-cert и tls-key в админке")
                 lines.append("deny *")
+            elif not use_ssl_plugin:
+                lines.append(f"# HTTPS {p['port']} — SSL plugin недоступен, выполните ./deploy.sh")
+                lines.append("deny *")
             else:
                 lines.append(f"# tls-cert={cert_paths[0]} tls-key={cert_paths[1]}")
                 lines.append(f"ssl_server_cert {cert_paths[0]}")
@@ -195,7 +201,8 @@ def _build_config_text() -> str:
                 lines.append("ssl_serv")
                 lines.append(f"proxy -p{p['port']}")
         else:
-            lines.append("ssl_noserv")
+            if use_ssl_plugin:
+                lines.append("ssl_noserv")
             lines.append(f"proxy -p{p['port']}")
         lines.append("")
 
@@ -248,6 +255,12 @@ def start():
             _last_proxy_error = None
 
 
+def restart():
+    """Полный перезапуск 3proxy (нужен при смене TLS / plugin)."""
+    stop()
+    start()
+
+
 def reload():
     """
     Перегенерирует конфиг и пытается применить его без обрыва сессий.
@@ -263,11 +276,14 @@ def reload():
     if proc is not None and proc.poll() is None:
         try:
             proc.send_signal(signal.SIGUSR1)
-            return
+            time.sleep(0.25)
+            with _proc_lock:
+                if _process is not None and _process.poll() is None:
+                    return
         except Exception:
             pass
 
-    start()
+    restart()
 
 
 def stop():

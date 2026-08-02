@@ -362,10 +362,14 @@ document.getElementById('saveTlsBtn').addEventListener('click', async () => {
   const errorEl = document.getElementById('domainError');
   errorEl.classList.add('hidden');
   try {
-    await api('/api/tls', {
+    const info = await api('/api/tls', {
       method: 'PUT',
       body: JSON.stringify({ cert_path, key_path, domain: domain || null }),
     });
+    if (!info.proxy_running && info.proxy_error) {
+      errorEl.textContent = `TLS сохранён, но прокси не запустился: ${info.proxy_error}`;
+      errorEl.classList.remove('hidden');
+    }
     await loadServerInfo();
     await loadPorts();
   } catch (e) {

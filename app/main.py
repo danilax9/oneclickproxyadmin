@@ -123,7 +123,7 @@ def save_domain(body: DomainBody, _: bool = Depends(require_auth)):
 async def save_tls(body: TlsBody, _: bool = Depends(require_auth)):
     try:
         domain_manager.save_tls_config(body.cert_path, body.key_path, body.domain)
-        proxy_manager.reload()
+        proxy_manager.restart()
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     ip = await utils.get_external_ip()

@@ -134,7 +134,8 @@ def validate_cert_path(path: str, label: str) -> str:
         raise ValueError(f"Файл не найден: {path}")
     if not os.access(p, os.R_OK):
         raise ValueError(f"Нет доступа на чтение: {path}")
-    return str(p.resolve())
+    # Не resolve(): Let's Encrypt live/*.pem — симлинки, resolve() «замораживает» archive-путь.
+    return path
 
 
 def set_domain(domain: str, ssl_mode: Optional[str] = None) -> dict:
