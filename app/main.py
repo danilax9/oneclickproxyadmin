@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Request, Response
+from fastapi import Cookie, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -40,24 +40,27 @@ class LoginBody(BaseModel):
 
 
 @app.post("/api/login")
-def login(body: LoginBody, response: Response):
+def login(body: LoginBody):
     if not auth.check_password(body.password):
         raise HTTPException(status_code=401, detail="Неверный пароль")
     token = auth.create_session_token()
+    response = JSONResponse(content={"ok": True})
     response.set_cookie(
-        auth.COOKIE_NAME,
-        token,
+        key=auth.COOKIE_NAME,
+        value=token,
         httponly=True,
         samesite="lax",
+        path="/",
         max_age=auth.SESSION_MAX_AGE,
     )
-    return {"ok": True}
+    return response
 
 
 @app.post("/api/logout")
-def logout(response: Response):
-    response.delete_cookie(auth.COOKIE_NAME)
-    return {"ok": True}
+def logout():
+    response = JSONResponse(content={"ok": True})
+    response.delete_cookie(key=auth.COOKIE_NAME, path="/")
+    return response
 
 
 @app.get("/api/me")
