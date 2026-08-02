@@ -403,7 +403,23 @@ def stop():
 def test_https_proxy(host: str, port: int, username: str, password: str) -> dict:
     """Проверка TLS и HTTPS-прокси с сервера (openssl + curl)."""
     host = host.strip()
-    results: dict = {"host": host, "port": port, "tls_ok": False, "proxy_ok": False, "details": []}
+    results: dict = {
+        "host": host,
+        "port": port,
+        "tls_ok": False,
+        "proxy_ok": False,
+        "chain_ok": False,
+        "details": [],
+    }
+
+    cert_paths = domain_manager.get_tls_paths()
+    cafile = cert_paths[0] if cert_paths else None
+    if cafile:
+        chain_ok, chain_err = domain_manager.verify_cert_chain_file(cafile)
+        results["chain_ok"] = chain_ok
+        results["cert_count"] = domain_manager.count_pem_certs(cafile)
+        if not chain_ok:
+            results["details"].append(f"Chain: {chain_err}")
 
     try:
         tls = subprocess.run(
@@ -411,42 +427,62 @@ def test_https_proxy(host: str, port: int, username: str, password: str) -> dict
                 "openssl", "s_client",
                 "-connect", f"{host}:{port}",
                 "-servername", host,
-                "-brief",
+                "-showcerts",
             ],
             input=b"",
             capture_output=True,
             timeout=15,
         )
         tls_out = (tls.stdout + tls.stderr).decode("utf-8", errors="replace")
-        results["tls_output"] = tls_out[-2000:]
-        results["tls_ok"] = tls.returncode == 0 and "CONNECTION ESTABLISHED" in tls_out
-        results["details"].append("TLS: OK" if results["tls_ok"] else f"TLS: ошибка (code {tls.returncode})")
+        results["tls_output"] = tls_out[-3000:]
+        sent_certs = tls_out.count("-----BEGIN CERTIFICATE-----")
+        results["tls_cert_count"] = sent_certs
+        results["tls_ok"] = "Verify return code: 0 (ok)" in tls_out or (
+            tls.returncode == 0 and "CONNECTION ESTABLISHED" in tls_out
+        )
+        if sent_certs < 2:
+            results["details"].append(
+                f"TLS handshake: прокси отдаёт {sent_certs} серт. — нужен fullchain (≥2)"
+            )
+        else:
+            results["details"].append(f"TLS handshake: {sent_certs} серт. в цепочке")
     except Exception as e:
         results["tls_output"] = str(e)
         results["details"].append(f"TLS: {e}")
 
     proxy_url = f"https://{username}:{password}@{host}:{port}"
+    curl_cmd = ["curl", "-sS", "-m", "20", "-x", proxy_url, "https://ifconfig.me"]
     try:
-        curl = subprocess.run(
-            [
-                "curl", "-sS", "-m", "20",
-                "-x", proxy_url,
-                "https://ifconfig.me",
-            ],
-            capture_output=True,
-            timeout=25,
-        )
+        curl = subprocess.run(curl_cmd, capture_output=True, timeout=25)
         body = curl.stdout.decode("utf-8", errors="replace").strip()
         err = curl.stderr.decode("utf-8", errors="replace").strip()
+        if curl.returncode != 0 and cafile:
+            curl = subprocess.run(
+                [
+                    "curl", "-sS", "-m", "20",
+                    "--proxy-cacert", cafile,
+                    "-x", proxy_url,
+                    "https://ifconfig.me",
+                ],
+                capture_output=True,
+                timeout=25,
+            )
+            body = curl.stdout.decode("utf-8", errors="replace").strip()
+            err = curl.stderr.decode("utf-8", errors="replace").strip()
         results["curl_output"] = body or err
         results["proxy_ok"] = curl.returncode == 0 and bool(body)
-        results["details"].append(
-            f"Прокси: OK ({body})" if results["proxy_ok"] else f"Прокси: ошибка ({err or curl.returncode})"
-        )
+        if results["proxy_ok"]:
+            results["details"].append(f"Прокси: OK ({body})")
+        elif "unable to get local issuer certificate" in err:
+            results["details"].append(
+                "Прокси: неполная цепочка CA — пересохраните TLS с fullchain.pem и ./deploy.sh"
+            )
+        else:
+            results["details"].append(f"Прокси: ошибка ({err or curl.returncode})")
     except Exception as e:
         results["curl_output"] = str(e)
         results["details"].append(f"Прокси: {e}")
 
-    results["ok"] = results["tls_ok"] and results["proxy_ok"]
+    results["ok"] = results["proxy_ok"]
     results["curl_example"] = f'curl -x "{proxy_url}" https://ifconfig.me'
     return results

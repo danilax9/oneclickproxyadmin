@@ -4,11 +4,13 @@
 FROM debian:bookworm-slim AS proxy-build
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        git build-essential ca-certificates libssl-dev \
+        git build-essential ca-certificates libssl-dev patch \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
+COPY patches/3proxy-ssl-fullchain.patch /tmp/3proxy-ssl-fullchain.patch
 RUN git clone --depth 1 --branch 0.9.5 https://github.com/3proxy/3proxy.git . \
+    && patch -p1 < /tmp/3proxy-ssl-fullchain.patch \
     && sed -i 's/^#LIBS = -lcrypto -lssl -ldl/LIBS = -lcrypto -lssl -ldl/' Makefile.Linux \
     && sed -i 's/^LIBS = -ldl *$/# LIBS = -ldl/' Makefile.Linux \
     && sed -i 's/^PLUGINS = StringsPlugin/PLUGINS = SSLPlugin StringsPlugin/' Makefile.Linux \
