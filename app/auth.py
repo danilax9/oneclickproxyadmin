@@ -30,7 +30,15 @@ def _load_secret_key() -> str:
 
 
 SECRET_KEY = _load_secret_key()
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "changeme").strip()
+def _normalize_password(value: str) -> str:
+    # Убираем пробелы, CR из Windows-.env и обрамляющие кавычки
+    v = value.strip().replace("\r", "")
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
+        v = v[1:-1]
+    return v
+
+
+ADMIN_PASSWORD = _normalize_password(os.environ.get("ADMIN_PASSWORD", "changeme"))
 SESSION_MAX_AGE = 60 * 60 * 24 * 7  # 7 дней
 COOKIE_NAME = "proxy_panel_session"
 
