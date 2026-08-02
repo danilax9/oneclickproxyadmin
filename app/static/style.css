@@ -729,6 +729,81 @@ table.data-table tbody tr:hover td {
   margin-bottom: 16px;
 }
 
+.ssl-guide {
+  margin-bottom: 20px;
+  padding: 16px 18px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+.ssl-guide-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+
+.ssl-guide-badge {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.ssl-guide-badge.warn {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+.ssl-guide-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ssl-guide-summary {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.ssl-guide-steps {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+}
+
+.ssl-guide-steps li {
+  margin-bottom: 6px;
+}
+
+.ssl-guide-steps li:last-child {
+  margin-bottom: 0;
+}
+
+.ssl-guide-command {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.55;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  color: var(--text-secondary);
+}
+
 .dns-mode-note code,
 .external-cert-fields code {
   font-family: var(--mono);

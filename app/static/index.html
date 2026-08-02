@@ -51,7 +51,7 @@
       <div class="panel-header">
         <div>
           <h2 class="panel-title">Домен и SSL</h2>
-          <p class="panel-subtitle">HTTPS-панель и HTTPS-прокси работают только с подключённым доменом</p>
+          <p class="panel-subtitle">443 занят Xray? Выберите режим «Внешний» — Cloudflare не нужен</p>
         </div>
         <span class="badge badge-ssl-none" id="sslBadge">Не настроен</span>
       </div>
@@ -73,11 +73,21 @@
         <div class="form-group">
           <label class="form-label" for="sslModeInput">Режим SSL</label>
           <select id="sslModeInput" class="select">
-            <option value="dns">DNS — Let's Encrypt (443 не нужен, Cloudflare)</option>
-            <option value="external">Внешний — сертификаты Xray / acme.sh</option>
+            <option value="external">Внешний — сертификаты Xray / acme.sh (рекомендуется)</option>
+            <option value="dns">DNS — Let's Encrypt через Cloudflare</option>
             <option value="caddy">Caddy — автоматически (нужны свободные 80/443)</option>
           </select>
-          <p class="form-hint" id="sslModeHint">Если 443 занят Xray — выберите DNS или Внешний</p>
+          <p class="form-hint" id="sslModeHint">Если 443 занят Xray — используйте режим «Внешний»</p>
+        </div>
+
+        <div id="sslGuideBox" class="ssl-guide">
+          <div class="ssl-guide-header">
+            <span class="ssl-guide-badge" id="sslGuideBadge">Инструкция</span>
+            <h3 class="ssl-guide-title" id="sslGuideTitle"></h3>
+          </div>
+          <p class="ssl-guide-summary" id="sslGuideSummary"></p>
+          <ol class="ssl-guide-steps" id="sslGuideSteps"></ol>
+          <pre class="ssl-guide-command hidden" id="sslGuideCommand"></pre>
         </div>
 
         <div id="externalCertFields" class="external-cert-fields hidden">
@@ -93,10 +103,6 @@
           <div class="domain-actions" style="margin-top:12px">
             <button id="saveSslModeBtn" class="btn btn-secondary btn-sm">Сохранить пути</button>
           </div>
-        </div>
-
-        <div id="dnsModeFields" class="dns-mode-note">
-          <p class="form-hint">DNS-режим: добавьте <code>CF_API_TOKEN</code> в <code>.env</code> (Cloudflare API Token с правом DNS:Edit). Порт 443 не занимается.</p>
         </div>
 
         <div class="dns-instructions" id="dnsInstructions">

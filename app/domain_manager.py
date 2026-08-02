@@ -52,7 +52,7 @@ def get_settings() -> dict:
         return {
             "id": 1,
             "domain": None,
-            "ssl_mode": "dns",
+            "ssl_mode": "external",
             "ssl_status": "none",
             "ssl_error": None,
             "cert_path": None,
@@ -62,7 +62,7 @@ def get_settings() -> dict:
             "updated_at": 0,
         }
     if not data.get("ssl_mode"):
-        data["ssl_mode"] = "dns"
+        data["ssl_mode"] = "external"
     return data
 
 
@@ -105,7 +105,7 @@ def validate_domain(domain: str) -> str:
 
 
 def validate_ssl_mode(mode: str) -> str:
-    mode = (mode or "dns").strip().lower()
+    mode = (mode or "external").strip().lower()
     if mode not in SSL_MODES:
         raise ValueError(f"Режим SSL должен быть один из: {', '.join(SSL_MODES)}")
     return mode
@@ -126,7 +126,7 @@ def validate_cert_path(path: str, label: str) -> str:
 def set_domain(domain: str, ssl_mode: Optional[str] = None) -> dict:
     domain = validate_domain(domain)
     current = get_settings()
-    mode = validate_ssl_mode(ssl_mode) if ssl_mode else current.get("ssl_mode", "dns")
+    mode = validate_ssl_mode(ssl_mode) if ssl_mode else current.get("ssl_mode", "external")
 
     if current.get("domain") != domain:
         stop_caddy()
@@ -378,12 +378,103 @@ def _run_acme(args: list[str], env: Optional[dict] = None) -> subprocess.Complet
     return result
 
 
+def is_cf_configured() -> bool:
+    return bool(os.environ.get("CF_API_TOKEN", "").strip())
+
+
+def get_ssl_guide(mode: str, domain: Optional[str], server_ip: str) -> dict:
+    domain = domain or "proxy.example.com"
+    ip = server_ip if server_ip not in ("unknown", "", None) else "IP_СЕРВЕРА"
+    cf = is_cf_configured()
+
+    guides = {
+        "external": {
+            "title": "443 занят Xray — подключение без Cloudflare",
+            "badge": "Рекомендуется",
+            "summary": "Используйте сертификаты, которые уже есть на сервере (Xray, acme.sh). Панель не занимает 443.",
+            "steps": [
+                f"В DNS добавьте A-запись: {domain} → {ip}",
+                "Если сертификата ещё нет — выпустите на сервере (см. команду ниже) или используйте файлы Xray",
+                "Откройте docker-compose.yml и добавьте volume (раскомментируйте строку):",
+                "  - /etc/xray:/etc/xray:ro",
+                "Пересоберите контейнер: docker-compose up -d --build",
+                f"Введите пути к файлам внутри контейнера, например: /etc/xray/cert/fullchain.pem и /etc/xray/cert/key.pem",
+                "Нажмите «Сохранить пути» → «Проверить DNS» → «Подключить SSL»",
+                "В конфиге Xray на inbound :443 добавьте fallback на панель (127.0.0.1:8000) — пример появится ниже",
+            ],
+            "command": (
+                "# Выпуск сертификата на сервере (если Xray ещё без TLS):\n"
+                "curl -fsSL https://get.acme.sh | sh\n"
+                "~/.acme.sh/acme.sh --issue -d "
+                + domain
+                + " --standalone\n"
+                "# Затем укажите пути к fullchain.pem и key.pem в админке"
+            ),
+        },
+        "dns": {
+            "title": "DNS-режим — автоматический Let's Encrypt через Cloudflare",
+            "badge": "Нужен CF_API_TOKEN" if not cf else "Готов к выпуску",
+            "summary": (
+                "Сертификат выпускается автоматически через DNS Cloudflare. Порт 443 не занимается."
+                if cf
+                else "Без CF_API_TOKEN этот режим недоступен. Используйте режим «Внешний» — он проще при Xray на 443."
+            ),
+            "steps": (
+                [
+                    "Создайте API Token в Cloudflare: My Profile → API Tokens → Create Token",
+                    "Шаблон: Edit zone DNS (или Custom: Zone → DNS → Edit)",
+                    "Скопируйте токен и добавьте в .env на сервере: CF_API_TOKEN=ваш_токен",
+                    "Перезапустите контейнер: docker-compose up -d --build",
+                    f"A-запись: {domain} → {ip} (можно через Cloudflare)",
+                    "В админке: сохраните домен → Проверить DNS → Выпустить SSL",
+                    "Настройте fallback Xray на 127.0.0.1:8000 для HTTPS-панели",
+                ]
+                if not cf
+                else [
+                    f"A-запись: {domain} → {ip}",
+                    "CF_API_TOKEN уже задан в .env",
+                    "Сохраните домен → Проверить DNS → Выпустить SSL",
+                    "Настройте fallback Xray на 127.0.0.1:8000",
+                ]
+            ),
+            "command": None,
+        },
+        "caddy": {
+            "title": "Caddy — автоматический HTTPS на 80/443",
+            "badge": "Только если 443 свободен",
+            "summary": "Caddy сам получит сертификат и будет проксировать панель. Не используйте, если 443 занят Xray.",
+            "steps": [
+                "Остановите всё, что слушает 80 и 443 (включая Xray на 443)",
+                f"A-запись: {domain} → {ip}",
+                "Сохраните домен → Проверить DNS → Выпустить SSL",
+                "Панель откроется по https://ваш-домен",
+            ],
+            "command": None,
+        },
+    }
+
+    guide = guides.get(mode, guides["external"])
+    return {
+        **guide,
+        "mode": mode,
+        "cf_token_configured": cf,
+        "can_activate_dns": cf,
+        "recommended_mode": "external",
+    }
+
+
+def _dns_token_error() -> str:
+    return (
+        "DNS-режим недоступен: не задан CF_API_TOKEN. "
+        "Выберите режим «Внешний» и укажите пути к сертификатам Xray — "
+        "инструкция отображается на этой странице."
+    )
+
+
 def _issue_cert_dns(domain: str) -> tuple[str, str]:
     token = os.environ.get("CF_API_TOKEN", "").strip()
     if not token:
-        raise ValueError(
-            "Для DNS-режима добавьте CF_API_TOKEN в .env (Cloudflare API Token с правом DNS:Edit)"
-        )
+        raise ValueError(_dns_token_error())
 
     email = ACME_EMAIL or f"admin@{domain}"
     domain_dir = CERTS_DIR / domain
@@ -475,7 +566,7 @@ async def _activate_caddy(domain: str) -> dict:
 async def activate_ssl() -> dict:
     settings = get_settings()
     domain = settings.get("domain")
-    mode = settings.get("ssl_mode", "dns")
+    mode = settings.get("ssl_mode", "external")
 
     if not domain:
         raise ValueError("Сначала укажите домен")
@@ -490,6 +581,8 @@ async def activate_ssl() -> dict:
         return _activate_external()
 
     # dns — без занятия 443
+    if not is_cf_configured():
+        raise ValueError(_dns_token_error())
     stop_caddy()
     _update_settings(ssl_status="issuing", ssl_error=None)
     try:
@@ -527,9 +620,11 @@ def require_https_allowed():
 
 def public_settings(fallback_ip: str) -> dict:
     s = get_settings()
-    mode = s.get("ssl_mode", "dns")
+    mode = s.get("ssl_mode", "external")
     active = is_ssl_active()
     hint = xray_hint(s["domain"]) if active and mode in ("dns", "external") and s.get("domain") else None
+
+    guide = get_ssl_guide(mode, s.get("domain"), fallback_ip)
 
     return {
         "domain": s.get("domain"),
@@ -546,9 +641,11 @@ def public_settings(fallback_ip: str) -> dict:
         "server_ip": fallback_ip,
         "https_allowed": active,
         "xray_hint": hint,
+        "cf_token_configured": is_cf_configured(),
+        "ssl_guide": guide,
         "ssl_mode_labels": {
             "caddy": "Caddy (нужны свободные 80/443)",
-            "dns": "DNS — Let's Encrypt (443 не нужен, Cloudflare)",
-            "external": "Внешний — сертификаты Xray/acme.sh",
+            "dns": "DNS — Let's Encrypt через Cloudflare",
+            "external": "Внешний — сертификаты Xray / acme.sh",
         },
     }
