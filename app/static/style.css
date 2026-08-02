@@ -132,6 +132,21 @@ body {
   color: var(--text);
 }
 
+.sidebar-proxy-error {
+  margin: 0 0 10px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--danger);
+  word-break: break-word;
+}
+
+.btn-xs {
+  padding: 2px 7px;
+  font-size: 12px;
+  line-height: 1.2;
+  margin-left: auto;
+}
+
 .sidebar-logout {
   width: 100%;
 }

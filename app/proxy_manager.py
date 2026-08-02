@@ -120,7 +120,91 @@ def delete_user(user_id: int):
         cur.execute("DELETE FROM users WHERE id=?", (user_id,))
 
 
-# ------------------------------------------------------- Config / process --
+def _format_user_entry(user: dict) -> str:
+    entry = f"{user['username']}:CL:{user['password']}"
+    if any(ch in user["password"] for ch in ' "\t'):
+        entry = f'"{entry}"'
+    return entry
+
+
+def _find_3proxy_pids() -> list[int]:
+    """Ищет зависшие процессы 3proxy (после старого daemon-режима)."""
+    pids: list[int] = []
+    proc_root = Path("/proc")
+    if not proc_root.is_dir():
+        return pids
+    cfg_name = CONFIG_PATH.name
+    for entry in proc_root.iterdir():
+        if not entry.name.isdigit():
+            continue
+        cmdline_path = entry / "cmdline"
+        try:
+            raw = cmdline_path.read_bytes().replace(b"\0", b" ").decode(errors="ignore")
+        except OSError:
+            continue
+        if THREEPROXY_BIN in raw or raw.lstrip().startswith("3proxy "):
+            if cfg_name in raw or str(CONFIG_PATH) in raw:
+                pids.append(int(entry.name))
+    return pids
+
+
+def _kill_stale_3proxy():
+    for pid in _find_3proxy_pids():
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    time.sleep(0.2)
+    for pid in _find_3proxy_pids():
+        try:
+            os.kill(pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
+
+def _tls_certs_valid(cert: str, key: str) -> bool:
+    try:
+        subprocess.run(
+            ["openssl", "x509", "-in", cert, "-noout"],
+            capture_output=True,
+            check=True,
+            timeout=5,
+        )
+        subprocess.run(
+            ["openssl", "pkey", "-in", key, "-noout"],
+            capture_output=True,
+            check=True,
+            timeout=5,
+        )
+        cert_mod = subprocess.run(
+            ["openssl", "x509", "-in", cert, "-noout", "-modulus"],
+            capture_output=True,
+            check=True,
+            timeout=5,
+            text=True,
+        ).stdout.strip()
+        key_mod = subprocess.run(
+            ["openssl", "pkey", "-in", key, "-noout", "-modulus"],
+            capture_output=True,
+            check=True,
+            timeout=5,
+            text=True,
+        ).stdout.strip()
+        return bool(cert_mod and cert_mod == key_mod)
+    except (subprocess.SubprocessError, FileNotFoundError, OSError):
+        return False
+
+
+def _read_log_tail(max_lines: int = 40) -> str:
+    log_file = LOG_DIR / "3proxy.log"
+    if not log_file.is_file():
+        return ""
+    try:
+        lines = log_file.read_text(encoding="utf-8", errors="replace").splitlines()
+        return "\n".join(lines[-max_lines:])
+    except OSError:
+        return ""
+
 
 def _build_config_text() -> str:
     with db_cursor() as cur:
@@ -154,26 +238,24 @@ def _build_config_text() -> str:
     ]
 
     cert_paths = domain_manager.get_tls_paths()
+    tls_ok = bool(cert_paths and _tls_certs_valid(cert_paths[0], cert_paths[1]))
     has_https = any(p["type"] == "https" for p in ports)
     use_ssl_plugin = bool(
-        has_https and cert_paths and Path(SSL_PLUGIN_PATH).is_file()
+        has_https and tls_ok and Path(SSL_PLUGIN_PATH).is_file()
     )
 
     if use_ssl_plugin:
         lines.append(f"plugin {SSL_PLUGIN_PATH} ssl_plugin")
         lines.append("")
 
+    all_usernames = [u["username"] for u in users]
+
     if users:
-        # Все активные (не заблокированные) пользователи объявляются одной
-        # строкой формата login:CL:password (CL = хранение в открытом виде,
-        # что упрощает управление из БД).
-        user_defs = " ".join(f"{u['username']}:CL:{u['password']}" for u in users)
+        user_defs = " ".join(_format_user_entry(u) for u in users)
         lines.append(f"users {user_defs}")
     else:
         lines.append("users dummy:CL:dummy")
 
-    lines.append("")
-    lines.append("auth strong")
     lines.append("")
 
     if not ports:
@@ -181,25 +263,35 @@ def _build_config_text() -> str:
 
     for p in ports:
         allowed = [users_by_id[uid]["username"] for uid in port_to_users.get(p["id"], []) if uid in users_by_id]
+        if not allowed and all_usernames:
+            allowed = all_usernames
+
         lines.append(f"# Порт {p['port']} ({p['type']})")
+        lines.append("auth strong")
         lines.append("flush")
         if allowed:
             lines.append(f"allow {','.join(allowed)}")
-        else:
+        elif users:
+            lines.append("# Нет пользователей на порту — доступ закрыт")
             lines.append("deny *")
+        else:
+            lines.append("allow *")
         if p["type"] == "https":
             if not cert_paths:
                 lines.append(f"# HTTPS {p['port']} — задайте tls-cert и tls-key в админке")
-                lines.append("deny *")
+            elif not tls_ok:
+                lines.append(f"# HTTPS {p['port']} — сертификат/ключ не читаются или не совпадают")
             elif not use_ssl_plugin:
                 lines.append(f"# HTTPS {p['port']} — SSL plugin недоступен, выполните ./deploy.sh")
-                lines.append("deny *")
             else:
                 lines.append(f"# tls-cert={cert_paths[0]} tls-key={cert_paths[1]}")
                 lines.append(f"ssl_server_cert {cert_paths[0]}")
                 lines.append(f"ssl_server_key {cert_paths[1]}")
                 lines.append("ssl_serv")
                 lines.append(f"proxy -p{p['port']}")
+                lines.append("")
+                continue
+            lines.append("deny *")
         else:
             if use_ssl_plugin:
                 lines.append("ssl_noserv")
@@ -224,10 +316,33 @@ def last_error() -> Optional[str]:
     return _last_proxy_error
 
 
+def diagnostics() -> dict:
+    stale = _find_3proxy_pids()
+    with _proc_lock:
+        managed_pid = _process.pid if _process is not None and _process.poll() is None else None
+    config_text = CONFIG_PATH.read_text(encoding="utf-8") if CONFIG_PATH.is_file() else ""
+    return {
+        "running": is_running(),
+        "error": last_error(),
+        "managed_pid": managed_pid,
+        "stale_pids": stale,
+        "ssl_plugin": Path(SSL_PLUGIN_PATH).is_file(),
+        "config_path": str(CONFIG_PATH),
+        "config": config_text,
+        "log_tail": _read_log_tail(),
+    }
+
+
+def ensure_running():
+    if not is_running():
+        restart()
+
+
 def start():
     """Запускает 3proxy, если ещё не запущен."""
     global _process, _last_proxy_error
     write_config()
+    _kill_stale_3proxy()
     with _proc_lock:
         if _process is not None and _process.poll() is None:
             return
@@ -242,14 +357,16 @@ def start():
             return
 
     # 3proxy с неверным конфигом может завершиться сразу после старта.
-    time.sleep(0.3)
+    time.sleep(0.5)
     with _proc_lock:
         if _process is not None and _process.poll() is not None:
             err = ""
             if _process.stderr:
                 err = _process.stderr.read().decode("utf-8", errors="replace").strip()
+            log_tail = _read_log_tail()
             code = _process.returncode
-            _last_proxy_error = err or f"3proxy завершился с кодом {code}"
+            parts = [p for p in (err, log_tail) if p]
+            _last_proxy_error = "\n".join(parts) if parts else f"3proxy завершился с кодом {code}"
             _process = None
         else:
             _last_proxy_error = None
@@ -296,3 +413,4 @@ def stop():
             except subprocess.TimeoutExpired:
                 _process.kill()
         _process = None
+    _kill_stale_3proxy()

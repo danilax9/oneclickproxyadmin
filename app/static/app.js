@@ -343,10 +343,16 @@ async function loadServerInfo() {
   const running = info.proxy_running;
   statusEl.textContent = running ? 'Работает' : 'Остановлен';
   dotEl.className = `status-dot ${running ? 'online' : 'offline'}`;
+  const errHint = document.getElementById('proxyErrorHint');
   if (!running && info.proxy_error) {
     statusEl.title = info.proxy_error;
+    if (errHint) {
+      errHint.textContent = info.proxy_error;
+      errHint.classList.remove('hidden');
+    }
   } else {
     statusEl.title = '';
+    if (errHint) errHint.classList.add('hidden');
   }
 
   applyDomainSettings(info);
@@ -651,6 +657,25 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     document.querySelectorAll('.modal-overlay:not(.hidden)').forEach(m => closeModal(m.id));
+  }
+});
+
+// ---------------------------------------------------------- Proxy restart --
+
+document.getElementById('restartProxyBtn')?.addEventListener('click', async () => {
+  const btn = document.getElementById('restartProxyBtn');
+  btn.disabled = true;
+  try {
+    await api('/api/proxy/restart', { method: 'POST' });
+    await loadServerInfo();
+  } catch (e) {
+    const errHint = document.getElementById('proxyErrorHint');
+    if (errHint) {
+      errHint.textContent = e.message;
+      errHint.classList.remove('hidden');
+    }
+  } finally {
+    btn.disabled = false;
   }
 });
 

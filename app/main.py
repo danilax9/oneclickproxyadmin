@@ -20,7 +20,7 @@ app = FastAPI(title="Proxy Panel")
 def on_startup():
     init_db()
     domain_manager.ensure_caddy()
-    proxy_manager.start()
+    proxy_manager.ensure_running()
 
 
 @app.on_event("shutdown")
@@ -82,6 +82,21 @@ async def server_info(_: bool = Depends(require_auth)):
         "proxy_error": proxy_manager.last_error(),
         "caddy_running": domain_manager.is_caddy_running(),
         **domain,
+    }
+
+
+@app.get("/api/proxy/diagnostics")
+async def proxy_diagnostics(_: bool = Depends(require_auth)):
+    return proxy_manager.diagnostics()
+
+
+@app.post("/api/proxy/restart")
+async def proxy_restart(_: bool = Depends(require_auth)):
+    proxy_manager.restart()
+    return {
+        "ok": True,
+        "proxy_running": proxy_manager.is_running(),
+        "proxy_error": proxy_manager.last_error(),
     }
 
 
