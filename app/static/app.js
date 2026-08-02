@@ -343,6 +343,11 @@ async function loadServerInfo() {
   const running = info.proxy_running;
   statusEl.textContent = running ? 'Работает' : 'Остановлен';
   dotEl.className = `status-dot ${running ? 'online' : 'offline'}`;
+  if (!running && info.proxy_error) {
+    statusEl.title = info.proxy_error;
+  } else {
+    statusEl.title = '';
+  }
 
   applyDomainSettings(info);
   updateOverviewStatus();

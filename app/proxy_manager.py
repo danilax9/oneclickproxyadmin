@@ -6,6 +6,7 @@ import os
 import signal
 import subprocess
 import threading
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -15,12 +16,14 @@ from app.database import db_cursor, now
 CONFIG_PATH = Path(os.environ.get("PROXY_CONFIG_PATH", "/app/data/3proxy.cfg"))
 LOG_DIR = Path(os.environ.get("PROXY_LOG_DIR", "/var/log/3proxy"))
 THREEPROXY_BIN = os.environ.get("THREEPROXY_BIN", "/usr/local/bin/3proxy")
+SSL_PLUGIN_PATH = os.environ.get("SSL_PLUGIN_PATH", "/usr/local/lib/3proxy/SSLPlugin.ld.so")
 
 CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 _proc_lock = threading.Lock()
 _process: Optional[subprocess.Popen] = None
+_last_proxy_error: Optional[str] = None
 
 
 # ---------------------------------------------------------------- Ports ----
@@ -138,7 +141,7 @@ def _build_config_text() -> str:
     users_by_id = {u["id"]: u for u in users}
 
     lines = [
-        "daemon",
+        "# Управляется OneClick Proxy Admin — не daemon, процесс держит Python",
         "maxconn 500",
         "nserver 8.8.8.8",
         "nserver 1.1.1.1",
@@ -149,6 +152,13 @@ def _build_config_text() -> str:
         "rotate 5",
         "",
     ]
+
+    cert_paths = domain_manager.get_tls_paths()
+    has_https = any(p["type"] == "https" for p in ports)
+
+    if has_https and cert_paths and Path(SSL_PLUGIN_PATH).is_file():
+        lines.append(f"plugin {SSL_PLUGIN_PATH} ssl_plugin")
+        lines.append("")
 
     if users:
         # Все активные (не заблокированные) пользователи объявляются одной
@@ -166,8 +176,6 @@ def _build_config_text() -> str:
     if not ports:
         lines.append("# Портов пока нет — 3proxy запущен без активных прокси-сервисов")
 
-    cert_paths = domain_manager.get_tls_paths()
-
     for p in ports:
         allowed = [users_by_id[uid]["username"] for uid in port_to_users.get(p["id"], []) if uid in users_by_id]
         lines.append(f"# Порт {p['port']} ({p['type']})")
@@ -182,9 +190,12 @@ def _build_config_text() -> str:
                 lines.append("deny *")
             else:
                 lines.append(f"# tls-cert={cert_paths[0]} tls-key={cert_paths[1]}")
-                lines.append(f"sslcert {cert_paths[0]} {cert_paths[1]}")
-                lines.append(f"proxy -p{p['port']} -e")
+                lines.append(f"ssl_server_cert {cert_paths[0]}")
+                lines.append(f"ssl_server_key {cert_paths[1]}")
+                lines.append("ssl_serv")
+                lines.append(f"proxy -p{p['port']}")
         else:
+            lines.append("ssl_noserv")
             lines.append(f"proxy -p{p['port']}")
         lines.append("")
 
@@ -202,14 +213,39 @@ def is_running() -> bool:
         return _process is not None and _process.poll() is None
 
 
+def last_error() -> Optional[str]:
+    return _last_proxy_error
+
+
 def start():
     """Запускает 3proxy, если ещё не запущен."""
-    global _process
+    global _process, _last_proxy_error
     write_config()
     with _proc_lock:
         if _process is not None and _process.poll() is None:
             return
-        _process = subprocess.Popen([THREEPROXY_BIN, str(CONFIG_PATH)])
+        try:
+            _process = subprocess.Popen(
+                [THREEPROXY_BIN, str(CONFIG_PATH)],
+                stderr=subprocess.PIPE,
+            )
+        except Exception as e:
+            _last_proxy_error = str(e)
+            _process = None
+            return
+
+    # 3proxy с неверным конфигом может завершиться сразу после старта.
+    time.sleep(0.3)
+    with _proc_lock:
+        if _process is not None and _process.poll() is not None:
+            err = ""
+            if _process.stderr:
+                err = _process.stderr.read().decode("utf-8", errors="replace").strip()
+            code = _process.returncode
+            _last_proxy_error = err or f"3proxy завершился с кодом {code}"
+            _process = None
+        else:
+            _last_proxy_error = None
 
 
 def reload():

@@ -79,6 +79,7 @@ async def server_info(_: bool = Depends(require_auth)):
     return {
         "ip": ip,
         "proxy_running": proxy_manager.is_running(),
+        "proxy_error": proxy_manager.last_error(),
         "caddy_running": domain_manager.is_caddy_running(),
         **domain,
     }
