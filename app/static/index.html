@@ -175,18 +175,22 @@
             </div>
 
             <details class="advanced-panel">
-              <summary>HTTPS для панели (опционально, если нужен https://домен)</summary>
+              <summary>HTTPS для панели — те же сертификаты, что выше</summary>
               <div class="advanced-panel-body">
+                <p class="form-hint" style="margin-bottom:12px">
+                  Сертификаты из раздела TLS используются и для HTTPS-прокси, и для панели.
+                  При Xray на 443 настройте fallback на порт панели.
+                </p>
                 <div class="domain-actions" style="margin:12px 0">
                   <button id="verifyDomainBtn" class="btn btn-secondary btn-sm" disabled>Проверить DNS</button>
-                  <button id="activateSslBtn" class="btn btn-primary btn-sm" disabled>Выпустить SSL панели</button>
-                  <button id="removeDomainBtn" class="btn btn-danger btn-sm" disabled>Сбросить SSL панели</button>
+                  <button id="activateSslBtn" class="btn btn-primary btn-sm" disabled>Подключить HTTPS панели</button>
+                  <button id="removeDomainBtn" class="btn btn-danger btn-sm" disabled>Сбросить</button>
                 </div>
                 <div class="form-group">
                   <label class="form-label" for="sslModeInput">Режим SSL панели</label>
                   <select id="sslModeInput" class="select">
-                    <option value="external">Внешний — те же сертификаты</option>
-                    <option value="dns">DNS — Cloudflare (нужен CF_API_TOKEN)</option>
+                    <option value="external">Xray / внешний — fallback на :8000</option>
+                    <option value="dns">DNS — Cloudflare (CF_API_TOKEN)</option>
                     <option value="caddy">Caddy — порты 80/443</option>
                   </select>
                   <p class="form-hint" id="sslModeHint"></p>
@@ -351,6 +355,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=5"></script>
+<script src="/static/app.js?v=6"></script>
 </body>
 </html>

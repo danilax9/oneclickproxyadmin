@@ -557,14 +557,22 @@ def xray_hint(domain: str) -> dict:
 
 def _build_caddyfile(domain: str) -> str:
     email = ACME_EMAIL or f"admin@{domain}"
-    return f"""{{
-    email {email}
-}}
-
-{domain} {{
-    reverse_proxy 127.0.0.1:{PANEL_PORT}
-}}
-"""
+    tls_paths = get_tls_paths()
+    if tls_paths:
+        cert, key = tls_paths
+        site = (
+            f"{domain} {{\n"
+            f"    tls {cert} {key}\n"
+            f"    reverse_proxy 127.0.0.1:{PANEL_PORT}\n"
+            f"}}"
+        )
+    else:
+        site = (
+            f"{domain} {{\n"
+            f"    reverse_proxy 127.0.0.1:{PANEL_PORT}\n"
+            f"}}"
+        )
+    return f"{{\n    email {email}\n}}\n\n{site}\n"
 
 
 def write_caddyfile(domain: str) -> Path:
@@ -657,27 +665,17 @@ def get_ssl_guide(mode: str, domain: Optional[str], server_ip: str) -> dict:
 
     guides = {
         "external": {
-            "title": "443 занят Xray — подключение без Cloudflare",
+            "title": "443 занят Xray — те же сертификаты, что и для HTTPS-прокси",
             "badge": "Рекомендуется",
-            "summary": "Используйте сертификаты, которые уже есть на сервере (Xray, acme.sh). Панель не занимает 443.",
+            "summary": "Сертификаты берутся из раздела TLS выше (автопоиск по домену). Xray терминирует HTTPS на 443, панель — на 127.0.0.1:8000.",
             "steps": [
-                f"В DNS добавьте A-запись: {domain} → {ip}",
-                "Если сертификата ещё нет — выпустите на сервере (см. команду ниже) или используйте файлы Xray",
-                "Откройте docker-compose.yml и добавьте volume (раскомментируйте строку):",
-                "  - /etc/xray:/etc/xray:ro",
-                "Пересоберите контейнер: docker-compose up -d --build",
-                f"Введите пути к файлам внутри контейнера, например: /etc/xray/cert/fullchain.pem и /etc/xray/cert/key.pem",
-                "Нажмите «Сохранить пути» → «Проверить DNS» → «Подключить SSL»",
-                "В конфиге Xray на inbound :443 добавьте fallback на панель (127.0.0.1:8000) — пример появится ниже",
+                f"В DNS: A-запись {domain} → {ip}",
+                "Выше: домен → «Найти сертификаты» → «Сохранить TLS»",
+                "Нажмите «Проверить DNS» → «Подключить HTTPS панели»",
+                "В inbound Xray :443 добавьте fallback на 127.0.0.1:8000 (пример ниже)",
+                f"В Xray укажите те же fullchain/privkey, что в TLS (или live Let's Encrypt)",
             ],
-            "command": (
-                "# Выпуск сертификата на сервере (если Xray ещё без TLS):\n"
-                "curl -fsSL https://get.acme.sh | sh\n"
-                "~/.acme.sh/acme.sh --issue -d "
-                + domain
-                + " --standalone\n"
-                "# Затем укажите пути к fullchain.pem и key.pem в админке"
-            ),
+            "command": None,
         },
         "dns": {
             "title": "DNS-режим — автоматический Let's Encrypt через Cloudflare",
@@ -708,14 +706,14 @@ def get_ssl_guide(mode: str, domain: Optional[str], server_ip: str) -> dict:
             "command": None,
         },
         "caddy": {
-            "title": "Caddy — автоматический HTTPS на 80/443",
+            "title": "Caddy — HTTPS панели на 80/443",
             "badge": "Только если 443 свободен",
-            "summary": "Caddy сам получит сертификат и будет проксировать панель. Не используйте, если 443 занят Xray.",
+            "summary": "Caddy использует те же сертификаты из раздела TLS. Если их нет — получит Let's Encrypt сам.",
             "steps": [
-                "Остановите всё, что слушает 80 и 443 (включая Xray на 443)",
+                "Остановите Xray/другое на 80 и 443",
                 f"A-запись: {domain} → {ip}",
-                "Сохраните домен → Проверить DNS → Выпустить SSL",
-                "Панель откроется по https://ваш-домен",
+                "Сохраните TLS выше (или «Найти сертификаты») → «Подключить HTTPS панели»",
+                f"Панель: https://{domain}",
             ],
             "command": None,
         },
@@ -782,23 +780,65 @@ def _issue_cert_dns(domain: str) -> tuple[str, str]:
     return str(fullchain), str(key)
 
 
+def _sync_panel_ssl_from_tls(domain: Optional[str] = None) -> None:
+    """Активирует HTTPS панели теми же сертификатами, что и HTTPS-прокси."""
+    s = get_settings()
+    domain = domain or s.get("domain")
+    if not domain:
+        return
+    tls = tls_status(force=True)
+    if not tls.get("valid"):
+        return
+    mode = s.get("ssl_mode", "external")
+    fields: dict = {"ssl_error": None}
+    if mode == "external":
+        fields["ssl_status"] = "active"
+        if not s.get("ssl_issued_at"):
+            fields["ssl_issued_at"] = now()
+    elif mode == "caddy":
+        start_caddy(domain)
+        fields["ssl_status"] = "active"
+        fields["ssl_issued_at"] = now()
+    if fields.get("ssl_status"):
+        _update_settings(**fields)
+
+
 def _activate_external() -> dict:
     s = get_settings()
-    cert = validate_cert_path(s.get("cert_path") or "", "сертификату")
-    key = validate_cert_path(s.get("key_path") or "", "ключу")
-    _update_settings(
-        cert_path=cert,
-        key_path=key,
-        ssl_status="active",
-        ssl_error=None,
-        ssl_issued_at=now(),
-    )
+    domain = s.get("domain")
+    if not domain:
+        raise ValueError("Сначала укажите домен")
+
+    tls = tls_status(force=True)
+    if not tls.get("valid"):
+        disc = discover_tls_certificates(domain)
+        if not disc.get("found") or not disc.get("valid"):
+            err = disc.get("error") or "Сертификаты не найдены"
+            raise ValueError(f"{err}. Укажите домен и нажмите «Найти сертификаты» в разделе TLS.")
+        return save_tls_config(disc["cert_path"], disc["key_path"], domain)
+
+    _sync_panel_ssl_from_tls(domain)
     return get_settings()
 
 
 async def _activate_caddy(domain: str) -> dict:
     _update_settings(ssl_status="issuing", ssl_error=None)
+
+    if not tls_status(force=True).get("valid"):
+        disc = discover_tls_certificates(domain)
+        if disc.get("found") and disc.get("valid"):
+            save_tls_config(disc["cert_path"], disc["key_path"], domain)
+            return get_settings()
+
     start_caddy(domain)
+
+    if get_tls_paths():
+        _update_settings(
+            ssl_status="active",
+            ssl_error=None,
+            ssl_issued_at=now(),
+        )
+        return get_settings()
 
     for _ in range(60):
         await asyncio.sleep(2)
@@ -1159,6 +1199,7 @@ def save_tls_config(
             fields["domain"] = auto
     _update_settings(**fields)
     invalidate_tls_cache()
+    _sync_panel_ssl_from_tls(fields.get("domain") or get_settings().get("domain"))
     return get_settings()
 
 
@@ -1173,10 +1214,16 @@ def public_settings(fallback_ip: str) -> dict:
     s = get_settings()
     mode = s.get("ssl_mode", "external")
     active = is_ssl_active()
-    hint = xray_hint(s["domain"]) if active and mode in ("dns", "external") and s.get("domain") else None
+    tls = tls_status()
+    tls_ready = tls.get("valid", False)
+    show_xray = (
+        s.get("domain")
+        and mode in ("dns", "external")
+        and (active or (mode == "external" and tls_ready))
+    )
+    hint = xray_hint(s["domain"]) if show_xray else None
 
     guide = get_ssl_guide(mode, s.get("domain"), fallback_ip)
-    tls = tls_status()
 
     return {
         "domain": s.get("domain"),

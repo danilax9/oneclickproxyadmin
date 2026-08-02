@@ -269,7 +269,7 @@ function renderDomainUI() {
     const chainNote = s.cert_chain_ok === false
       ? ' ⚠ Укажите fullchain.pem (не cert.pem) — иначе клиенты не доверяют HTTPS-прокси.'
       : (s.cert_count ? ` Chain: ${s.cert_count} серт.` : '');
-    tlsStatusText.textContent = `HTTPS-прокси активны. Подключайтесь как https://user:pass@${s.domain || CONNECTION_HOST}:ПОРТ (не http).${sans ? ` SAN: ${sans}.` : ''}${chainNote}`;
+    tlsStatusText.textContent = `HTTPS-прокси активны. Подключайтесь как https://user:pass@${s.domain || CONNECTION_HOST}:ПОРТ (не http).${sans ? ` SAN: ${sans}.` : ''}${chainNote}${s.ssl_active ? '' : ' Для HTTPS-панели: «Подключить HTTPS панели» ниже.'}`;
     tlsStatusText.style.color = s.cert_domain_match === false ? 'var(--warning, #b45309)' : 'var(--success)';
     if (s.cert_domain_match === false) {
       tlsStatusText.textContent += ` Домен «${s.domain}» не найден в сертификате — клиент может ругаться на TLS.`;
@@ -326,7 +326,8 @@ function renderDomainUI() {
   }
 
   const xrayBox = document.getElementById('xrayHintBox');
-  if (s.ssl_active && s.xray_hint && mode !== 'caddy') {
+  const showXray = s.xray_hint && mode !== 'caddy' && (s.ssl_active || (mode === 'external' && tlsReady && s.tls_valid !== false));
+  if (showXray) {
     xrayBox.classList.remove('hidden');
     document.getElementById('xrayHintTitle').textContent = s.xray_hint.title;
     document.getElementById('xrayHintSteps').innerHTML =
@@ -610,10 +611,11 @@ document.getElementById('activateSslBtn').addEventListener('click', async () => 
   errorEl.classList.add('hidden');
   const btn = document.getElementById('activateSslBtn');
   btn.disabled = true;
-  btn.textContent = 'Выпуск SSL…';
+  btn.textContent = 'Подключение…';
   try {
     const mode = document.getElementById('sslModeInput').value;
     if (mode === 'external') {
+      await discoverTlsFromDomain({ force: true });
       await saveTlsPathsForPanel();
     } else {
       await api('/api/domain/ssl', {
