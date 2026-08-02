@@ -4,7 +4,7 @@ import asyncio
 import logging
 import os
 
-from fastapi import Cookie, Depends, FastAPI, HTTPException, Request
+from fastapi import BackgroundTasks, Cookie, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -171,29 +171,70 @@ def save_domain(body: DomainBody, _: bool = Depends(require_auth)):
     return {"ok": True}
 
 
+def _restart_proxy_after_tls():
+    try:
+        proxy_manager.restart()
+    except Exception:
+        log.exception("proxy restart after TLS save failed")
+
+
 @app.get("/api/health")
 def health():
+    tls = domain_manager.tls_status()
     return {
         "ok": True,
         "panel_port": os.environ.get("PANEL_PORT", "8000"),
         "proxy_running": proxy_manager.is_running(),
+        "proxy_error": proxy_manager.last_error(),
         "letsencrypt_mounted": Path("/etc/letsencrypt").exists(),
+        "ssl_plugin": Path(os.environ.get("SSL_PLUGIN_PATH", "/usr/local/lib/3proxy/SSLPlugin.ld.so")).is_file(),
+        "tls_valid": tls.get("valid"),
+        "tls_error": tls.get("error"),
+        "tls_cert_count": tls.get("cert_count"),
     }
 
 
-@app.put("/api/tls")
-async def save_tls(body: TlsBody, _: bool = Depends(require_auth)):
+@app.post("/api/tls/validate")
+async def validate_tls(body: TlsBody, _: bool = Depends(require_auth)):
+    """Проверка путей без сохранения и перезапуска 3proxy."""
     loop = asyncio.get_running_loop()
 
-    def apply_tls():
-        domain_manager.save_tls_config(body.cert_path, body.key_path, body.domain)
-        proxy_manager.restart()
+    def check():
+        cert = domain_manager.validate_cert_path(body.cert_path, "tls-cert", kind="fullchain")
+        key = domain_manager.validate_cert_path(body.key_path, "tls-key", kind="privkey")
+        valid, err = domain_manager.validate_tls_pair(cert, key)
+        fullchain, count = domain_manager.build_fullchain_pem(cert)
+        chain_ok, chain_err = domain_manager.verify_cert_chain_file(cert)
+        return {
+            "cert_path": cert,
+            "key_path": key,
+            "valid": valid and chain_ok,
+            "error": err or chain_err,
+            "cert_count": count,
+            "sans": domain_manager.get_cert_sans(cert),
+        }
 
     try:
-        await asyncio.wait_for(
-            loop.run_in_executor(None, apply_tls),
-            timeout=45.0,
-        )
+        return await asyncio.wait_for(loop.run_in_executor(None, check), timeout=20.0)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Таймаут проверки TLS")
+
+
+@app.put("/api/tls")
+async def save_tls(
+    body: TlsBody,
+    background_tasks: BackgroundTasks,
+    _: bool = Depends(require_auth),
+):
+    loop = asyncio.get_running_loop()
+
+    def save_only():
+        domain_manager.save_tls_config(body.cert_path, body.key_path, body.domain)
+
+    try:
+        await asyncio.wait_for(loop.run_in_executor(None, save_only), timeout=30.0)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except OSError as e:
@@ -207,11 +248,14 @@ async def save_tls(body: TlsBody, _: bool = Depends(require_auth)):
         log.exception("save_tls failed")
         raise HTTPException(status_code=500, detail=f"Ошибка сохранения TLS: {e}")
 
+    background_tasks.add_task(_restart_proxy_after_tls)
+
     base = domain_manager.public_settings("")
     return {
         **base,
         "proxy_running": proxy_manager.is_running(),
         "proxy_error": proxy_manager.last_error(),
+        "proxy_restarting": True,
     }
 
 

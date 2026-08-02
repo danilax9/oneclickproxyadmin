@@ -338,7 +338,7 @@ def start():
         try:
             _process = subprocess.Popen(
                 [THREEPROXY_BIN, str(CONFIG_PATH)],
-                stderr=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
                 start_new_session=True,
             )
         except Exception as e:
@@ -350,13 +350,9 @@ def start():
     time.sleep(0.5)
     with _proc_lock:
         if _process is not None and _process.poll() is not None:
-            err = ""
-            if _process.stderr:
-                err = _process.stderr.read().decode("utf-8", errors="replace").strip()
             log_tail = _read_log_tail()
             code = _process.returncode
-            parts = [p for p in (err, log_tail) if p]
-            _last_proxy_error = "\n".join(parts) if parts else f"3proxy завершился с кодом {code}"
+            _last_proxy_error = log_tail if log_tail else f"3proxy завершился с кодом {code}"
             _process = None
         else:
             _last_proxy_error = None

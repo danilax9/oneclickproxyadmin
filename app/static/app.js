@@ -21,8 +21,11 @@ async function api(path, options = {}) {
       headers: { 'Content-Type': 'application/json' },
       ...options,
     });
-  } catch {
-    throw new Error('Сервер недоступен. Проверьте контейнер: docker ps | grep proxy-panel');
+  } catch (err) {
+    const hint = err?.name === 'AbortError'
+      ? 'Таймаут запроса — попробуйте ещё раз или проверьте docker logs proxy-panel'
+      : 'Сервер недоступен. Проверьте: curl -s http://127.0.0.1:8000/api/health';
+    throw new Error(hint);
   }
   if (resp.status === 401) {
     window.location.href = '/login';
@@ -430,12 +433,20 @@ document.getElementById('saveTlsBtn').addEventListener('click', async () => {
       method: 'PUT',
       body: JSON.stringify({ cert_path, key_path, domain: domain || null }),
     });
-    if (!info.proxy_running && info.proxy_error) {
-      errorEl.textContent = `TLS сохранён, но прокси не запустился: ${info.proxy_error}`;
-      errorEl.classList.remove('hidden');
+    if (info.proxy_restarting) {
+      btn.textContent = 'Перезапуск прокси…';
+      await new Promise((r) => setTimeout(r, 2000));
     }
     await loadServerInfo();
     await loadPorts();
+    const fresh = DOMAIN_SETTINGS;
+    if (!fresh.tls_valid && fresh.tls_error) {
+      errorEl.textContent = `TLS не прошёл проверку: ${fresh.tls_error}`;
+      errorEl.classList.remove('hidden');
+    } else if (!info.proxy_running && info.proxy_error) {
+      errorEl.textContent = `TLS сохранён, но прокси не запустился: ${info.proxy_error}`;
+      errorEl.classList.remove('hidden');
+    }
   } catch (e) {
     errorEl.textContent = e.message;
     errorEl.classList.remove('hidden');
