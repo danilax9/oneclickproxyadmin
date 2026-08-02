@@ -7,187 +7,270 @@
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+<div class="sidebar-overlay" id="sidebarOverlay"></div>
 <div class="app-shell">
 
-  <header class="topbar">
-    <div class="topbar-brand">
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1" fill="currentColor" stroke="none"/><circle cx="6" cy="18" r="1" fill="currentColor" stroke="none"/></svg>
-      OneClick Proxy
+      <span>OneClick Proxy</span>
     </div>
-    <div class="topbar-meta">
-      <div class="meta-item">
-        <span class="label">IP</span>
-        <span class="value" id="serverIp">…</span>
+
+    <nav class="sidebar-nav">
+      <button type="button" class="nav-item active" data-tab="overview">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        Обзор
+      </button>
+      <button type="button" class="nav-item" data-tab="domain">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+        Домен и SSL
+      </button>
+      <button type="button" class="nav-item" data-tab="ports">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+        Порты
+      </button>
+      <button type="button" class="nav-item" data-tab="users">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+        Пользователи
+      </button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="sidebar-status">
+        <div class="sidebar-status-row">
+          <span class="label">IP</span>
+          <span class="value" id="serverIp">…</span>
+        </div>
+        <div class="sidebar-status-row">
+          <span class="status-dot online" id="proxyDot"></span>
+          <span id="proxyStatus">…</span>
+        </div>
       </div>
-      <div class="meta-item">
-        <span class="status-dot online" id="proxyDot"></span>
-        <span id="proxyStatus">Загрузка…</span>
-      </div>
-      <button id="logoutBtn" class="btn btn-secondary btn-sm">
+      <button id="logoutBtn" class="btn btn-secondary btn-sm sidebar-logout">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
         Выйти
       </button>
     </div>
-  </header>
+  </aside>
 
-  <main class="main">
-
-    <div class="stats-row">
-      <div class="stat-card">
-        <div class="stat-label">Порты</div>
-        <div class="stat-value" id="statPorts">0</div>
+  <div class="content-area">
+    <header class="content-header">
+      <button type="button" class="sidebar-toggle btn btn-icon" id="sidebarToggle" aria-label="Меню">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div>
+        <h1 class="page-title" id="pageTitle">Обзор</h1>
+        <p class="page-subtitle" id="pageSubtitle">Сводка по серверу и прокси</p>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">Пользователи</div>
-        <div class="stat-value" id="statUsers">0</div>
+    </header>
+
+    <main class="main">
+
+      <!-- Overview -->
+      <div class="tab-panel active" id="tab-overview">
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-label">Порты</div>
+            <div class="stat-value" id="statPorts">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Пользователи</div>
+            <div class="stat-value" id="statUsers">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Домен</div>
+            <div class="stat-value stat-value-sm" id="statDomain">—</div>
+          </div>
+        </div>
+
+        <div class="overview-grid">
+          <div class="panel">
+            <div class="panel-header">
+              <h2 class="panel-title">Быстрые действия</h2>
+            </div>
+            <div class="panel-body padded">
+              <div class="quick-actions">
+                <button type="button" class="quick-action" data-goto="domain">
+                  <span class="quick-action-title">Настроить домен</span>
+                  <span class="quick-action-desc">SSL и HTTPS-прокси</span>
+                </button>
+                <button type="button" class="quick-action" data-goto="ports">
+                  <span class="quick-action-title">Добавить порт</span>
+                  <span class="quick-action-desc">Открыть прокси-порт</span>
+                </button>
+                <button type="button" class="quick-action" data-goto="users">
+                  <span class="quick-action-title">Создать пользователя</span>
+                  <span class="quick-action-desc">Логин и строки подключения</span>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <div class="panel-header">
+              <h2 class="panel-title">Статус системы</h2>
+            </div>
+            <div class="panel-body padded">
+              <ul class="status-list" id="overviewStatusList">
+                <li><span>3proxy</span><span id="overviewProxy">—</span></li>
+                <li><span>SSL</span><span id="overviewSsl">—</span></li>
+                <li><span>HTTPS-порты</span><span id="overviewHttps">—</span></li>
+              </ul>
+            </div>
+          </div>
+        </div>
       </div>
-      <div class="stat-card">
-        <div class="stat-label">Домен</div>
-        <div class="stat-value stat-value-sm" id="statDomain">—</div>
+
+      <!-- Domain -->
+      <div class="tab-panel" id="tab-domain">
+        <section class="panel" id="domainPanel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Домен и SSL</h2>
+              <p class="panel-subtitle">443 занят Xray? Выберите режим «Внешний» — Cloudflare не нужен</p>
+            </div>
+            <span class="badge badge-ssl-none" id="sslBadge">Не настроен</span>
+          </div>
+          <div class="panel-body padded">
+            <div class="domain-grid">
+              <div class="form-group" style="margin-bottom:0">
+                <label class="form-label" for="domainInput">Домен</label>
+                <input id="domainInput" type="text" placeholder="proxy.example.com" class="input">
+                <p class="form-hint">Укажите поддомен или домен, который контролируете</p>
+              </div>
+              <div class="domain-actions">
+                <button id="saveDomainBtn" class="btn btn-primary btn-sm">Сохранить</button>
+                <button id="verifyDomainBtn" class="btn btn-secondary btn-sm" disabled>Проверить DNS</button>
+                <button id="activateSslBtn" class="btn btn-primary btn-sm" disabled>Выпустить SSL</button>
+                <button id="removeDomainBtn" class="btn btn-danger btn-sm" disabled>Отключить</button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label" for="sslModeInput">Режим SSL</label>
+              <select id="sslModeInput" class="select">
+                <option value="external">Внешний — сертификаты Xray / acme.sh (рекомендуется)</option>
+                <option value="dns">DNS — Let's Encrypt через Cloudflare</option>
+                <option value="caddy">Caddy — автоматически (нужны свободные 80/443)</option>
+              </select>
+              <p class="form-hint" id="sslModeHint">Если 443 занят Xray — используйте режим «Внешний»</p>
+            </div>
+
+            <div id="sslGuideBox" class="ssl-guide">
+              <div class="ssl-guide-header">
+                <span class="ssl-guide-badge" id="sslGuideBadge">Инструкция</span>
+                <h3 class="ssl-guide-title" id="sslGuideTitle"></h3>
+              </div>
+              <p class="ssl-guide-summary" id="sslGuideSummary"></p>
+              <ol class="ssl-guide-steps" id="sslGuideSteps"></ol>
+              <pre class="ssl-guide-command hidden" id="sslGuideCommand"></pre>
+            </div>
+
+            <div id="externalCertFields" class="external-cert-fields hidden">
+              <div class="form-group">
+                <label class="form-label" for="certPathInput">Путь к сертификату (fullchain)</label>
+                <input id="certPathInput" type="text" placeholder="/etc/xray/cert/fullchain.pem" class="input">
+              </div>
+              <div class="form-group" style="margin-bottom:0">
+                <label class="form-label" for="keyPathInput">Путь к ключу</label>
+                <input id="keyPathInput" type="text" placeholder="/etc/xray/cert/key.pem" class="input">
+                <p class="form-hint">Смонтируйте каталог с сертификатами в docker-compose (например /etc/xray:/etc/xray:ro)</p>
+              </div>
+              <div class="domain-actions" style="margin-top:12px">
+                <button id="saveSslModeBtn" class="btn btn-secondary btn-sm">Сохранить пути</button>
+              </div>
+            </div>
+
+            <div class="dns-instructions" id="dnsInstructions">
+              <div class="dns-instructions-title">Настройка DNS</div>
+              <div class="dns-record">
+                <span class="dns-record-type">A</span>
+                <span class="dns-record-name" id="dnsName">@</span>
+                <span class="dns-record-value" id="dnsValue">—</span>
+                <button type="button" class="btn btn-icon btn-sm" id="copyDnsBtn" title="Копировать IP">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                </button>
+              </div>
+              <p class="form-hint">После добавления записи нажмите «Проверить DNS», затем «Выпустить SSL»</p>
+            </div>
+
+            <div class="domain-status hidden" id="domainStatusBox">
+              <p class="domain-status-text" id="domainStatusText"></p>
+              <p class="domain-panel-url hidden" id="panelUrlBox">
+                Панель: <a id="panelUrlLink" href="#" target="_blank" rel="noopener"></a>
+              </p>
+            </div>
+
+            <div class="xray-hint hidden" id="xrayHintBox">
+              <div class="xray-hint-title" id="xrayHintTitle"></div>
+              <ul class="xray-hint-steps" id="xrayHintSteps"></ul>
+              <pre class="xray-snippet" id="xraySnippet"></pre>
+            </div>
+            <p id="domainError" class="form-error hidden"></p>
+          </div>
+        </section>
       </div>
-    </div>
 
-    <section class="panel" id="domainPanel">
-      <div class="panel-header">
-        <div>
-          <h2 class="panel-title">Домен и SSL</h2>
-          <p class="panel-subtitle">443 занят Xray? Выберите режим «Внешний» — Cloudflare не нужен</p>
-        </div>
-        <span class="badge badge-ssl-none" id="sslBadge">Не настроен</span>
-      </div>
-      <div class="panel-body padded">
-        <div class="domain-grid">
-          <div class="form-group" style="margin-bottom:0">
-            <label class="form-label" for="domainInput">Домен</label>
-            <input id="domainInput" type="text" placeholder="proxy.example.com" class="input">
-            <p class="form-hint">Укажите поддомен или домен, который контролируете</p>
-          </div>
-          <div class="domain-actions">
-            <button id="saveDomainBtn" class="btn btn-primary btn-sm">Сохранить</button>
-            <button id="verifyDomainBtn" class="btn btn-secondary btn-sm" disabled>Проверить DNS</button>
-            <button id="activateSslBtn" class="btn btn-primary btn-sm" disabled>Выпустить SSL</button>
-            <button id="removeDomainBtn" class="btn btn-danger btn-sm" disabled>Отключить</button>
-          </div>
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="sslModeInput">Режим SSL</label>
-          <select id="sslModeInput" class="select">
-            <option value="external">Внешний — сертификаты Xray / acme.sh (рекомендуется)</option>
-            <option value="dns">DNS — Let's Encrypt через Cloudflare</option>
-            <option value="caddy">Caddy — автоматически (нужны свободные 80/443)</option>
-          </select>
-          <p class="form-hint" id="sslModeHint">Если 443 занят Xray — используйте режим «Внешний»</p>
-        </div>
-
-        <div id="sslGuideBox" class="ssl-guide">
-          <div class="ssl-guide-header">
-            <span class="ssl-guide-badge" id="sslGuideBadge">Инструкция</span>
-            <h3 class="ssl-guide-title" id="sslGuideTitle"></h3>
-          </div>
-          <p class="ssl-guide-summary" id="sslGuideSummary"></p>
-          <ol class="ssl-guide-steps" id="sslGuideSteps"></ol>
-          <pre class="ssl-guide-command hidden" id="sslGuideCommand"></pre>
-        </div>
-
-        <div id="externalCertFields" class="external-cert-fields hidden">
-          <div class="form-group">
-            <label class="form-label" for="certPathInput">Путь к сертификату (fullchain)</label>
-            <input id="certPathInput" type="text" placeholder="/etc/xray/cert/fullchain.pem" class="input">
-          </div>
-          <div class="form-group" style="margin-bottom:0">
-            <label class="form-label" for="keyPathInput">Путь к ключу</label>
-            <input id="keyPathInput" type="text" placeholder="/etc/xray/cert/key.pem" class="input">
-            <p class="form-hint">Смонтируйте каталог с сертификатами в docker-compose (например /etc/xray:/etc/xray:ro)</p>
-          </div>
-          <div class="domain-actions" style="margin-top:12px">
-            <button id="saveSslModeBtn" class="btn btn-secondary btn-sm">Сохранить пути</button>
-          </div>
-        </div>
-
-        <div class="dns-instructions" id="dnsInstructions">
-          <div class="dns-instructions-title">Настройка DNS</div>
-          <div class="dns-record">
-            <span class="dns-record-type">A</span>
-            <span class="dns-record-name" id="dnsName">@</span>
-            <span class="dns-record-value" id="dnsValue">—</span>
-            <button type="button" class="btn btn-icon btn-sm" id="copyDnsBtn" title="Копировать IP">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      <!-- Ports -->
+      <div class="tab-panel" id="tab-ports">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Прокси-порты</h2>
+              <p class="panel-subtitle">Управление открытыми портами на сервере</p>
+            </div>
+            <button id="addPortBtn" class="btn btn-primary btn-sm">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Добавить порт
             </button>
           </div>
-          <p class="form-hint">После добавления записи нажмите «Проверить DNS», затем «Выпустить SSL»</p>
-        </div>
-
-        <div class="domain-status hidden" id="domainStatusBox">
-          <p class="domain-status-text" id="domainStatusText"></p>
-          <p class="domain-panel-url hidden" id="panelUrlBox">
-            Панель: <a id="panelUrlLink" href="#" target="_blank" rel="noopener"></a>
-          </p>
-        </div>
-
-        <div class="xray-hint hidden" id="xrayHintBox">
-          <div class="xray-hint-title" id="xrayHintTitle"></div>
-          <ul class="xray-hint-steps" id="xrayHintSteps"></ul>
-          <pre class="xray-snippet" id="xraySnippet"></pre>
-        </div>
-        <p id="domainError" class="form-error hidden"></p>
+          <div class="panel-body">
+            <div id="portsEmpty" class="empty-state hidden">
+              <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
+              <p class="empty-state-title">Портов пока нет</p>
+              <p class="empty-state-text">Создайте первый прокси-порт для начала работы</p>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table hidden" id="portsTable">
+                <thead>
+                  <tr>
+                    <th>Порт</th>
+                    <th>Тип</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="portsList"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
       </div>
-    </section>
 
-    <section class="panel">
-      <div class="panel-header">
-        <div>
-          <h2 class="panel-title">Прокси-порты</h2>
-          <p class="panel-subtitle">Управление открытыми портами на сервере</p>
-        </div>
-        <button id="addPortBtn" class="btn btn-primary btn-sm">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Добавить порт
-        </button>
+      <!-- Users -->
+      <div class="tab-panel" id="tab-users">
+        <section class="panel">
+          <div class="panel-header">
+            <div>
+              <h2 class="panel-title">Пользователи</h2>
+              <p class="panel-subtitle">Учётные записи и строки подключения</p>
+            </div>
+            <button id="addUserBtn" class="btn btn-primary btn-sm">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Создать
+            </button>
+          </div>
+          <div class="panel-body">
+            <div id="usersEmpty" class="empty-state hidden">
+              <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              <p class="empty-state-title">Пользователей пока нет</p>
+              <p class="empty-state-text">Создайте пользователя и назначьте ему порты</p>
+            </div>
+            <div class="user-list" id="usersList"></div>
+          </div>
+        </section>
       </div>
-      <div class="panel-body">
-        <div id="portsEmpty" class="empty-state hidden">
-          <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/></svg>
-          <p class="empty-state-title">Портов пока нет</p>
-          <p class="empty-state-text">Создайте первый прокси-порт для начала работы</p>
-        </div>
-        <div class="table-wrap">
-          <table class="data-table hidden" id="portsTable">
-            <thead>
-              <tr>
-                <th>Порт</th>
-                <th>Тип</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="portsList"></tbody>
-          </table>
-        </div>
-      </div>
-    </section>
 
-    <section class="panel">
-      <div class="panel-header">
-        <div>
-          <h2 class="panel-title">Пользователи</h2>
-          <p class="panel-subtitle">Учётные записи и строки подключения</p>
-        </div>
-        <button id="addUserBtn" class="btn btn-primary btn-sm">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Создать
-        </button>
-      </div>
-      <div class="panel-body">
-        <div id="usersEmpty" class="empty-state hidden">
-          <svg class="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-          <p class="empty-state-title">Пользователей пока нет</p>
-          <p class="empty-state-text">Создайте пользователя и назначьте ему порты</p>
-        </div>
-        <div class="user-list" id="usersList"></div>
-      </div>
-    </section>
-
-  </main>
+    </main>
+  </div>
 </div>
 
 <!-- Modal: port -->

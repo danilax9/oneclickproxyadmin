@@ -78,6 +78,78 @@ async function copyToClipboard(text, btn) {
   if (ok) showCopySuccess(btn);
 }
 
+function updateOverviewStatus() {
+  const proxyEl = document.getElementById('overviewProxy');
+  const sslEl = document.getElementById('overviewSsl');
+  const httpsEl = document.getElementById('overviewHttps');
+  if (!proxyEl) return;
+
+  const proxyStatus = document.getElementById('proxyStatus');
+  proxyEl.textContent = proxyStatus?.textContent || '—';
+  proxyEl.style.color = proxyStatus?.textContent === 'Работает' ? 'var(--success)' : '';
+
+  if (DOMAIN_SETTINGS.ssl_active) {
+    sslEl.textContent = 'Активен';
+    sslEl.style.color = 'var(--success)';
+  } else {
+    sslEl.textContent = SSL_LABELS[DOMAIN_SETTINGS.ssl_status]?.text || 'Не настроен';
+    sslEl.style.color = '';
+  }
+
+  httpsEl.textContent = HTTPS_ALLOWED ? 'Доступны' : 'Нужен SSL';
+  httpsEl.style.color = HTTPS_ALLOWED ? 'var(--success)' : 'var(--text-muted)';
+}
+
+const TAB_META = {
+  overview: { title: 'Обзор', subtitle: 'Сводка по серверу и прокси' },
+  domain: { title: 'Домен и SSL', subtitle: 'Подключение домена и сертификаты' },
+  ports: { title: 'Порты', subtitle: 'Управление прокси-портами' },
+  users: { title: 'Пользователи', subtitle: 'Учётные записи и строки подключения' },
+};
+
+function switchTab(tab, { openModal: modal } = {}) {
+  if (!TAB_META[tab]) tab = 'overview';
+
+  document.querySelectorAll('.nav-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.tab === tab);
+  });
+  document.querySelectorAll('.tab-panel').forEach(el => {
+    el.classList.toggle('active', el.id === `tab-${tab}`);
+  });
+
+  document.getElementById('pageTitle').textContent = TAB_META[tab].title;
+  document.getElementById('pageSubtitle').textContent = TAB_META[tab].subtitle;
+
+  location.hash = tab;
+  document.getElementById('sidebar')?.classList.remove('open');
+  document.getElementById('sidebarOverlay')?.classList.remove('visible');
+
+  if (modal === 'port') document.getElementById('addPortBtn')?.click();
+  if (modal === 'user') document.getElementById('addUserBtn')?.click();
+}
+
+document.querySelectorAll('.nav-item').forEach(btn => {
+  btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+});
+
+document.querySelectorAll('.quick-action').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tab = btn.dataset.goto;
+    const modal = tab === 'ports' ? 'port' : tab === 'users' ? 'user' : undefined;
+    switchTab(tab, { openModal: modal });
+  });
+});
+
+document.getElementById('sidebarToggle')?.addEventListener('click', () => {
+  document.getElementById('sidebar')?.classList.toggle('open');
+  document.getElementById('sidebarOverlay')?.classList.toggle('visible');
+});
+
+document.getElementById('sidebarOverlay')?.addEventListener('click', () => {
+  document.getElementById('sidebar')?.classList.remove('open');
+  document.getElementById('sidebarOverlay')?.classList.remove('visible');
+});
+
 function updateStats() {
   document.getElementById('statPorts').textContent = PORTS.length;
   document.getElementById('statUsers').textContent = USERS.length;
@@ -89,6 +161,7 @@ function updateStats() {
     domainEl.textContent = '—';
     domainEl.title = '';
   }
+  updateOverviewStatus();
 }
 
 const SSL_LABELS = {
@@ -264,6 +337,7 @@ async function loadServerInfo() {
   dotEl.className = `status-dot ${running ? 'online' : 'offline'}`;
 
   applyDomainSettings(info);
+  updateOverviewStatus();
 }
 
 // -------------------------------------------------------------- Domain ---
@@ -585,6 +659,8 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
 (async function init() {
   try {
     await api('/api/me');
+    const hash = location.hash.replace('#', '');
+    if (TAB_META[hash]) switchTab(hash);
     await loadServerInfo();
     await loadPorts();
     await loadUsers();
