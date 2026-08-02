@@ -1,5 +1,7 @@
 from pathlib import Path
 from typing import Optional
+import asyncio
+import logging
 
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -12,6 +14,7 @@ from app.database import init_db
 STATIC_DIR = Path(__file__).parent / "static"
 
 app = FastAPI(title="Proxy Panel")
+log = logging.getLogger("uvicorn.error")
 
 
 # --------------------------------------------------------------- Startup ---
@@ -171,12 +174,20 @@ def save_domain(body: DomainBody, _: bool = Depends(require_auth)):
 async def save_tls(body: TlsBody, _: bool = Depends(require_auth)):
     try:
         domain_manager.save_tls_config(body.cert_path, body.key_path, body.domain)
-        proxy_manager.restart()
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    ip = await utils.get_external_ip()
+    except OSError as e:
+        raise HTTPException(status_code=400, detail=f"Ошибка доступа к файлам: {e}")
+    except Exception as e:
+        log.exception("save_tls failed")
+        raise HTTPException(status_code=500, detail=f"Ошибка сохранения TLS: {e}")
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, proxy_manager.restart)
+
+    base = domain_manager.public_settings("")
     return {
-        **domain_manager.public_settings(ip),
+        **base,
         "proxy_running": proxy_manager.is_running(),
         "proxy_error": proxy_manager.last_error(),
     }
@@ -327,3 +338,9 @@ app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
     return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    log.exception("Unhandled error on %s", request.url.path)
+    return JSONResponse(status_code=500, content={"detail": str(exc)})

@@ -864,14 +864,17 @@ def materialize_tls_files(cert_path: str, key_path: str) -> tuple[str, str]:
     dest_dir.mkdir(parents=True, exist_ok=True)
     cert_dest = dest_dir / "fullchain.pem"
     key_dest = dest_dir / "privkey.pem"
-    fullchain_text, cert_count = build_fullchain_pem(cert_path)
-    if cert_count < 2:
-        raise ValueError(
-            "Нужен fullchain.pem (сертификат + chain). "
-            "Укажите /etc/letsencrypt/live/ДОМЕН/fullchain.pem — не cert.pem"
-        )
-    cert_dest.write_text(fullchain_text, encoding="utf-8")
-    shutil.copy2(key_path, key_dest)
+    try:
+        fullchain_text, cert_count = build_fullchain_pem(cert_path)
+        if cert_count < 2:
+            raise ValueError(
+                "Нужен fullchain.pem (сертификат + chain). "
+                "Укажите /etc/letsencrypt/live/ДОМЕН/fullchain.pem — не cert.pem"
+            )
+        cert_dest.write_text(fullchain_text, encoding="utf-8")
+        shutil.copy2(key_path, key_dest)
+    except OSError as e:
+        raise OSError(f"Не удалось записать сертификаты в {dest_dir}: {e}") from e
     os.chmod(cert_dest, 0o644)
     os.chmod(key_dest, 0o600)
     return str(cert_dest), str(key_dest)

@@ -14,18 +14,27 @@ const COPY_BTN_HTML = `
 const copyResetTimers = new WeakMap();
 
 async function api(path, options = {}) {
-  const resp = await fetch(path, {
-    credentials: 'same-origin',
-    headers: { 'Content-Type': 'application/json' },
-    ...options,
-  });
+  let resp;
+  try {
+    resp = await fetch(path, {
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      ...options,
+    });
+  } catch {
+    throw new Error('Сервер недоступен. Проверьте контейнер: docker ps | grep proxy-panel');
+  }
   if (resp.status === 401) {
     window.location.href = '/login';
     throw new Error('unauthorized');
   }
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
-    throw new Error(data.detail || 'Ошибка запроса');
+    const detail = data.detail;
+    const msg = Array.isArray(detail)
+      ? detail.map((d) => d.msg || String(d)).join('; ')
+      : (detail || `Ошибка запроса (${resp.status})`);
+    throw new Error(msg);
   }
   return data;
 }
@@ -411,7 +420,11 @@ document.getElementById('saveTlsBtn').addEventListener('click', async () => {
   const key_path = document.getElementById('keyPathInput').value.trim();
   const domain = document.getElementById('domainInput').value.trim();
   const errorEl = document.getElementById('domainError');
+  const btn = document.getElementById('saveTlsBtn');
   errorEl.classList.add('hidden');
+  btn.disabled = true;
+  const prevText = btn.textContent;
+  btn.textContent = 'Сохранение…';
   try {
     const info = await api('/api/tls', {
       method: 'PUT',
@@ -426,6 +439,9 @@ document.getElementById('saveTlsBtn').addEventListener('click', async () => {
   } catch (e) {
     errorEl.textContent = e.message;
     errorEl.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prevText;
   }
 });
 
