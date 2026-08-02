@@ -3,47 +3,56 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Вход — Proxy Panel</title>
-<script src="https://cdn.tailwindcss.com"></script>
+<title>Вход — OneClick Proxy Admin</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
-<body class="min-h-screen flex items-center justify-center">
-  <div class="card p-8 w-full max-w-sm">
-    <h1 class="text-xl font-bold mb-1">🔐 Proxy Panel</h1>
-    <p class="text-sm mb-6" style="color: var(--muted)">Введите пароль администратора</p>
-    <form id="loginForm" method="post" action="#" class="flex flex-col gap-3">
-      <input id="password" type="password" placeholder="Пароль" class="input w-full" autofocus required>
-      <button type="submit" class="btn btn-primary w-full">Войти</button>
-      <p id="error" class="text-sm hidden" style="color: var(--danger)"></p>
+<body>
+<div class="login-page">
+  <div class="login-card">
+    <div class="login-brand">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#2563eb" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><circle cx="6" cy="6" r="1" fill="#2563eb" stroke="none"/><circle cx="6" cy="18" r="1" fill="#2563eb" stroke="none"/></svg>
+      <span class="login-brand-name">OneClick Proxy</span>
+    </div>
+    <h1 class="login-heading">Вход в панель</h1>
+    <p class="login-subheading">Введите пароль администратора для продолжения</p>
+    <form id="loginForm" method="post" action="#" class="login-form">
+      <div class="form-group" style="margin-bottom:0">
+        <label class="form-label" for="password">Пароль</label>
+        <input id="password" type="password" placeholder="••••••••" class="input" autofocus required>
+      </div>
+      <p id="error" class="form-error hidden"></p>
+      <button type="submit" class="btn btn-primary" style="width:100%;padding:10px">Войти</button>
     </form>
+    <div class="login-footer">OneClick Proxy Admin</div>
   </div>
+</div>
 
-  <script>
-    const form = document.getElementById('loginForm');
-    const errorEl = document.getElementById('error');
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      errorEl.classList.add('hidden');
-      const password = document.getElementById('password').value;
-      try {
-        const resp = await fetch('/api/login', {
-          method: 'POST',
-          credentials: 'same-origin',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({password})
-        });
-        if (resp.ok) {
-          window.location.href = '/';
-          return;
-        }
-        const data = await resp.json().catch(() => ({}));
-        errorEl.textContent = data.detail || 'Ошибка входа';
-        errorEl.classList.remove('hidden');
-      } catch (err) {
-        errorEl.textContent = 'Не удалось связаться с сервером';
-        errorEl.classList.remove('hidden');
+<script>
+  const form = document.getElementById('loginForm');
+  const errorEl = document.getElementById('error');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorEl.classList.add('hidden');
+    const password = document.getElementById('password').value;
+    try {
+      const resp = await fetch('/api/login', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({password})
+      });
+      if (resp.ok) {
+        window.location.href = '/';
+        return;
       }
-    });
-  </script>
+      const data = await resp.json().catch(() => ({}));
+      errorEl.textContent = data.detail || 'Неверный пароль';
+      errorEl.classList.remove('hidden');
+    } catch {
+      errorEl.textContent = 'Не удалось связаться с сервером';
+      errorEl.classList.remove('hidden');
+    }
+  });
+</script>
 </body>
 </html>

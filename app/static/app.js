@@ -2,6 +2,9 @@ let SERVER_IP = '';
 let PORTS = [];
 let USERS = [];
 
+const ICON_COPY = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
+const ICON_CHECK = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+
 async function api(path, options = {}) {
   const resp = await fetch(path, {
     credentials: 'same-origin',
@@ -20,22 +23,28 @@ async function api(path, options = {}) {
 }
 
 function openModal(id) {
-  const el = document.getElementById(id);
-  el.classList.remove('hidden');
-  el.classList.add('flex');
+  document.getElementById(id).classList.remove('hidden');
 }
+
 function closeModal(id) {
-  const el = document.getElementById(id);
-  el.classList.add('hidden');
-  el.classList.remove('flex');
+  document.getElementById(id).classList.add('hidden');
 }
 
 function copyToClipboard(text, btn) {
   navigator.clipboard.writeText(text).then(() => {
-    const original = btn.textContent;
-    btn.textContent = '✅';
-    setTimeout(() => (btn.textContent = original), 1200);
+    btn.innerHTML = ICON_CHECK;
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.innerHTML = ICON_COPY;
+      btn.classList.remove('copied');
+    }, 1500);
   });
+}
+
+function updateStats() {
+  document.getElementById('statPorts').textContent = PORTS.length;
+  document.getElementById('statUsers').textContent = USERS.length;
+  document.getElementById('statActive').textContent = USERS.filter(u => !u.blocked).length;
 }
 
 // ----------------------------------------------------------- Server info --
@@ -44,13 +53,15 @@ async function loadServerInfo() {
   const info = await api('/api/server-info');
   SERVER_IP = info.ip;
   document.getElementById('serverIp').textContent = info.ip;
+
   const statusEl = document.getElementById('proxyStatus');
+  const dotEl = document.getElementById('proxyDot');
   if (info.proxy_running) {
-    statusEl.textContent = '● работает';
-    statusEl.className = 'badge badge-active ml-2';
+    statusEl.textContent = 'Работает';
+    dotEl.className = 'status-dot online';
   } else {
-    statusEl.textContent = '● остановлен';
-    statusEl.className = 'badge badge-blocked ml-2';
+    statusEl.textContent = 'Остановлен';
+    dotEl.className = 'status-dot offline';
   }
 }
 
@@ -60,27 +71,31 @@ async function loadPorts() {
   PORTS = await api('/api/ports');
   const list = document.getElementById('portsList');
   const empty = document.getElementById('portsEmpty');
+  const table = document.getElementById('portsTable');
+
   list.innerHTML = '';
-  empty.classList.toggle('hidden', PORTS.length > 0);
+  const hasPorts = PORTS.length > 0;
+  empty.classList.toggle('hidden', hasPorts);
+  table.classList.toggle('hidden', !hasPorts);
 
   for (const p of PORTS) {
-    const row = document.createElement('div');
-    row.className = 'flex items-center justify-between p-3 rounded-xl';
-    row.style.border = '1px solid var(--card-border)';
+    const row = document.createElement('tr');
     row.innerHTML = `
-      <div class="flex items-center gap-3">
-        <span class="font-mono font-semibold">${p.port}</span>
-        <span class="badge badge-${p.type}">${p.type.toUpperCase()}</span>
-      </div>
-      <button class="btn btn-danger text-sm" data-id="${p.id}">Удалить</button>
+      <td class="td-mono">${p.port}</td>
+      <td><span class="badge badge-${p.type}">${p.type.toUpperCase()}</span></td>
+      <td class="td-actions">
+        <button class="btn btn-danger btn-sm delete-btn">Удалить</button>
+      </td>
     `;
-    row.querySelector('button').addEventListener('click', async () => {
+    row.querySelector('.delete-btn').addEventListener('click', async () => {
       if (!confirm(`Удалить порт ${p.port}? Пользователи потеряют к нему доступ.`)) return;
       await api(`/api/ports/${p.id}`, { method: 'DELETE' });
       await Promise.all([loadPorts(), loadUsers()]);
+      updateStats();
     });
     list.appendChild(row);
   }
+  updateStats();
 }
 
 document.getElementById('addPortBtn').addEventListener('click', () => {
@@ -115,48 +130,49 @@ async function loadUsers() {
   USERS = await api('/api/users');
   const list = document.getElementById('usersList');
   const empty = document.getElementById('usersEmpty');
+
   list.innerHTML = '';
   empty.classList.toggle('hidden', USERS.length > 0);
 
   for (const u of USERS) {
-    const card = document.createElement('div');
-    card.className = 'card p-4';
+    const item = document.createElement('div');
+    item.className = 'user-item';
 
-    const linksHtml = (u.ports || []).map(p => {
-      const link = `${p.type}://${u.username}:${u.password}@${SERVER_IP}:${p.port}`;
-      return `
-        <div class="flex items-center gap-2 mt-1">
-          <span class="link-mono flex-1">${link}</span>
-          <button class="btn btn-ghost text-sm copy-btn">📋</button>
-        </div>
-      `;
-    }).join('') || `<p class="text-sm mt-1" style="color: var(--muted)">Нет доступа ни к одному порту</p>`;
+    const linksHtml = (u.ports || []).map(() => `
+      <div class="proxy-link-row">
+        <div class="proxy-link"></div>
+        <button class="btn btn-icon copy-btn" title="Копировать">${ICON_COPY}</button>
+      </div>
+    `).join('');
 
-    card.innerHTML = `
-      <div class="flex items-start justify-between flex-wrap gap-3">
+    item.innerHTML = `
+      <div class="user-item-header">
         <div>
-          <div class="flex items-center gap-2">
-            <span class="font-semibold">${u.username}</span>
-            <span class="badge ${u.blocked ? 'badge-blocked' : 'badge-active'}">${u.blocked ? 'заблокирован' : 'активен'}</span>
+          <div class="user-name-row">
+            <span class="user-name">${escapeHtml(u.username)}</span>
+            <span class="badge ${u.blocked ? 'badge-blocked' : 'badge-active'}">${u.blocked ? 'Заблокирован' : 'Активен'}</span>
           </div>
-          <p class="text-sm mt-1" style="color: var(--muted)">пароль: <span class="font-mono">${u.password}</span></p>
+          <div class="user-password">Пароль: <code>${escapeHtml(u.password)}</code></div>
         </div>
-        <div class="flex gap-2">
-          <button class="btn btn-ghost text-sm block-btn">${u.blocked ? 'Разблокировать' : 'Заблокировать'}</button>
-          <button class="btn btn-danger text-sm delete-btn">Удалить</button>
+        <div class="user-actions">
+          <button class="btn btn-secondary btn-sm block-btn">${u.blocked ? 'Разблокировать' : 'Заблокировать'}</button>
+          <button class="btn btn-danger btn-sm delete-btn">Удалить</button>
         </div>
       </div>
-      <div class="mt-3">${linksHtml}</div>
+      ${linksHtml
+        ? `<div class="proxy-links">${linksHtml}</div>`
+        : '<p class="no-links">Нет доступа к портам</p>'}
     `;
 
-    // copy buttons
-    const copyBtns = card.querySelectorAll('.copy-btn');
+    const linkEls = item.querySelectorAll('.proxy-link');
+    const copyBtns = item.querySelectorAll('.copy-btn');
     (u.ports || []).forEach((p, idx) => {
       const link = `${p.type}://${u.username}:${u.password}@${SERVER_IP}:${p.port}`;
+      linkEls[idx].textContent = link;
       copyBtns[idx].addEventListener('click', () => copyToClipboard(link, copyBtns[idx]));
     });
 
-    card.querySelector('.block-btn').addEventListener('click', async () => {
+    item.querySelector('.block-btn').addEventListener('click', async () => {
       await api(`/api/users/${u.id}/block`, {
         method: 'PATCH',
         body: JSON.stringify({ blocked: !u.blocked }),
@@ -164,14 +180,23 @@ async function loadUsers() {
       await loadUsers();
     });
 
-    card.querySelector('.delete-btn').addEventListener('click', async () => {
+    item.querySelector('.delete-btn').addEventListener('click', async () => {
       if (!confirm(`Удалить пользователя ${u.username}?`)) return;
       await api(`/api/users/${u.id}`, { method: 'DELETE' });
       await loadUsers();
     });
 
-    list.appendChild(card);
+    list.appendChild(item);
   }
+  updateStats();
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 }
 
 document.getElementById('addUserBtn').addEventListener('click', () => {
@@ -182,12 +207,12 @@ document.getElementById('addUserBtn').addEventListener('click', () => {
   const box = document.getElementById('userPortsCheckboxes');
   box.innerHTML = '';
   if (PORTS.length === 0) {
-    box.innerHTML = '<p class="text-sm" style="color: var(--muted)">Сначала создайте хотя бы один порт</p>';
+    box.innerHTML = '<span style="font-size:13px;color:var(--text-muted)">Сначала создайте хотя бы один порт</span>';
   }
   for (const p of PORTS) {
     const label = document.createElement('label');
-    label.className = 'flex items-center gap-2 text-sm';
-    label.innerHTML = `<input type="checkbox" value="${p.id}" class="port-checkbox"> ${p.port} (${p.type.toUpperCase()})`;
+    label.className = 'checkbox-label';
+    label.innerHTML = `<input type="checkbox" value="${p.id}" class="port-checkbox"> ${p.port} · ${p.type.toUpperCase()}`;
     box.appendChild(label);
   }
   openModal('userModal');
@@ -209,6 +234,20 @@ document.getElementById('userSubmitBtn').addEventListener('click', async () => {
   } catch (e) {
     errorEl.textContent = e.message;
     errorEl.classList.remove('hidden');
+  }
+});
+
+// ---------------------------------------------------------- Modal close --
+
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) closeModal(overlay.id);
+  });
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-overlay:not(.hidden)').forEach(m => closeModal(m.id));
   }
 });
 
