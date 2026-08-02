@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import Optional
 import asyncio
 import logging
+import os
 
 from fastapi import Cookie, Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
@@ -170,20 +171,41 @@ def save_domain(body: DomainBody, _: bool = Depends(require_auth)):
     return {"ok": True}
 
 
+@app.get("/api/health")
+def health():
+    return {
+        "ok": True,
+        "panel_port": os.environ.get("PANEL_PORT", "8000"),
+        "proxy_running": proxy_manager.is_running(),
+        "letsencrypt_mounted": Path("/etc/letsencrypt").exists(),
+    }
+
+
 @app.put("/api/tls")
 async def save_tls(body: TlsBody, _: bool = Depends(require_auth)):
-    try:
+    loop = asyncio.get_running_loop()
+
+    def apply_tls():
         domain_manager.save_tls_config(body.cert_path, body.key_path, body.domain)
+        proxy_manager.restart()
+
+    try:
+        await asyncio.wait_for(
+            loop.run_in_executor(None, apply_tls),
+            timeout=45.0,
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except OSError as e:
         raise HTTPException(status_code=400, detail=f"Ошибка доступа к файлам: {e}")
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail="Таймаут сохранения TLS — проверьте пути к fullchain.pem и privkey.pem",
+        )
     except Exception as e:
         log.exception("save_tls failed")
         raise HTTPException(status_code=500, detail=f"Ошибка сохранения TLS: {e}")
-
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, proxy_manager.restart)
 
     base = domain_manager.public_settings("")
     return {

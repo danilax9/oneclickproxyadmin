@@ -7,6 +7,7 @@ import signal
 import subprocess
 import threading
 import time
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -134,17 +135,21 @@ def _find_3proxy_pids() -> list[int]:
     if not proc_root.is_dir():
         return pids
     cfg_name = CONFIG_PATH.name
+    cfg_path = str(CONFIG_PATH)
     for entry in proc_root.iterdir():
-        if not entry.name.isdigit():
+        if not entry.name.isdigit() or entry.name == "1":
             continue
         cmdline_path = entry / "cmdline"
         try:
-            raw = cmdline_path.read_bytes().replace(b"\0", b" ").decode(errors="ignore")
+            raw = cmdline_path.read_bytes().replace(b"\0", b" ").decode(errors="ignore").strip()
         except OSError:
             continue
-        if THREEPROXY_BIN in raw or raw.lstrip().startswith("3proxy "):
-            if cfg_name in raw or str(CONFIG_PATH) in raw:
-                pids.append(int(entry.name))
+        if "uvicorn" in raw or "python" in raw:
+            continue
+        if not re.search(r"(?:^|[\s/])3proxy(?:\s|$)", raw):
+            continue
+        if cfg_name in raw or cfg_path in raw:
+            pids.append(int(entry.name))
     return pids
 
 
@@ -334,6 +339,7 @@ def start():
             _process = subprocess.Popen(
                 [THREEPROXY_BIN, str(CONFIG_PATH)],
                 stderr=subprocess.PIPE,
+                start_new_session=True,
             )
         except Exception as e:
             _last_proxy_error = str(e)
