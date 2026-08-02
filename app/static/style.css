@@ -361,6 +361,7 @@ table.data-table tbody tr:hover td {
   background: var(--surface);
   border: 1px solid var(--border);
   color: var(--text-muted);
+  transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
 }
 
 .btn-icon:hover:not(:disabled) {
@@ -371,8 +372,52 @@ table.data-table tbody tr:hover td {
 
 .btn-icon.copied {
   color: var(--success);
-  border-color: #bbf7d0;
+  border-color: #86efac;
   background: var(--success-soft);
+}
+
+.copy-icon-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+}
+
+.copy-icon {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.check-icon {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transform: scale(0.35);
+}
+
+.check-path {
+  stroke-dasharray: 22;
+  stroke-dashoffset: 22;
+}
+
+.btn-icon.copied .copy-icon {
+  opacity: 0;
+  transform: scale(0.5);
+}
+
+.btn-icon.copied .check-icon {
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 0.2s ease 0.08s, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) 0.08s;
+}
+
+.btn-icon.copied .check-path {
+  animation: draw-check 0.45s ease 0.2s forwards;
+}
+
+@keyframes draw-check {
+  to { stroke-dashoffset: 0; }
 }
 
 .btn-sm {

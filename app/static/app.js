@@ -2,8 +2,13 @@ let SERVER_IP = '';
 let PORTS = [];
 let USERS = [];
 
-const ICON_COPY = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`;
-const ICON_CHECK = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+const COPY_BTN_HTML = `
+  <span class="copy-icon-wrap">
+    <svg class="copy-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+    <svg class="check-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline class="check-path" points="20 6 9 17 4 12"/></svg>
+  </span>`;
+
+const copyResetTimers = new WeakMap();
 
 async function api(path, options = {}) {
   const resp = await fetch(path, {
@@ -30,15 +35,44 @@ function closeModal(id) {
   document.getElementById(id).classList.add('hidden');
 }
 
-function copyToClipboard(text, btn) {
-  navigator.clipboard.writeText(text).then(() => {
-    btn.innerHTML = ICON_CHECK;
-    btn.classList.add('copied');
-    setTimeout(() => {
-      btn.innerHTML = ICON_COPY;
-      btn.classList.remove('copied');
-    }, 1500);
-  });
+async function copyText(text) {
+  if (navigator.clipboard?.writeText && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch { /* fallback below */ }
+  }
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.cssText = 'position:fixed;top:0;left:0;width:2em;height:2em;padding:0;border:none;outline:none;opacity:0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  ta.setSelectionRange(0, text.length);
+  let ok = false;
+  try {
+    ok = document.execCommand('copy');
+  } catch { /* ignore */ }
+  document.body.removeChild(ta);
+  return ok;
+}
+
+function showCopySuccess(btn) {
+  const prev = copyResetTimers.get(btn);
+  if (prev) clearTimeout(prev);
+  btn.classList.remove('copied');
+  void btn.offsetWidth; // restart CSS animation
+  btn.classList.add('copied');
+  copyResetTimers.set(btn, setTimeout(() => {
+    btn.classList.remove('copied');
+    copyResetTimers.delete(btn);
+  }, 2000));
+}
+
+async function copyToClipboard(text, btn) {
+  const ok = await copyText(text);
+  if (ok) showCopySuccess(btn);
 }
 
 function updateStats() {
@@ -141,7 +175,7 @@ async function loadUsers() {
     const linksHtml = (u.ports || []).map(() => `
       <div class="proxy-link-row">
         <div class="proxy-link"></div>
-        <button class="btn btn-icon copy-btn" title="Копировать">${ICON_COPY}</button>
+        <button type="button" class="btn btn-icon copy-btn" title="Копировать">${COPY_BTN_HTML}</button>
       </div>
     `).join('');
 
